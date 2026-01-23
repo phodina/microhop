@@ -28,7 +28,7 @@ fn main() -> Result<(), Error> {
     // Create sysroot entry point
     let temp_mpt = &cfg.get_sysroot_path();
     if !Path::new(temp_mpt).exists() {
-        unistd::mkdir(temp_mpt.as_str(), stat::Mode::S_IRUSR)?;
+        unistd::mkdir(temp_mpt.as_str(), stat::Mode::S_IRWXU)?;
         log::debug!("Init sysroot path: {}", temp_mpt);
     }
 

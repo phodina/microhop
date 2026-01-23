@@ -9,11 +9,16 @@ pub struct SystemDir<T: AsRef<str>> {
     pub fstype: T,
     pub dev: T,
     pub dst: T,
+    pub mode: Option<T>,
 }
 
 impl<T: AsRef<str>> SystemDir<T> {
     const fn new(fstype: T, dev: T, dst: T) -> Self {
-        Self { fstype, dev, dst }
+        Self { fstype, dev, dst, mode: None }
+    }
+
+    pub fn new_with_mode(fstype: T, dev: T, dst: T, mode: T) -> Self {
+        Self { fstype, dev, dst, mode: Some(mode) }
     }
 }
 
@@ -51,8 +56,17 @@ pub fn greet(cfg: &MhConfig) -> Result<(), Error> {
 
 /// Mount configured filesystems in a batch
 pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) {
+    use nix::mount::MsFlags;
+
     for t in filesystems {
-        if let Err(err) = syslib::fs::mount(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref()) {
+        let mut flags = MsFlags::MS_NOATIME;
+        if let Some(mode) = &t.mode {
+            if mode.as_ref() == "ro" {
+                flags |= MsFlags::MS_RDONLY;
+            }
+        }
+
+        if let Err(err) = syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags) {
             log::error!("Error mounting {}: {}", t.dst.as_ref(), err);
         };
     }
@@ -137,7 +151,12 @@ pub fn get_blk_devices(cfg: &MhConfig) -> Result<(String, Vec<SystemDir<String>>
             let devpath = resolve_device_path(device_spec, &blkid);
 
             if let Some(devpath) = devpath {
-                let dir = SystemDir::new(dev.get_fstype().into(), devpath.into(), format!("{}{}", &cfg.get_sysroot_path(), mpt));
+                let dir = SystemDir::new_with_mode(
+                    dev.get_fstype().into(),
+                    devpath.into(),
+                    format!("{}{}", &cfg.get_sysroot_path(), mpt),
+                    dev.get_mode().into(),
+                );
                 blk_mpt.push(dir);
             } else {
                 log::warn!("Unknown device: {}", device_spec);

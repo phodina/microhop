@@ -41,13 +41,18 @@ fn rmrf(sr: &str) -> Result<(), Error> {
 
 /// Mounts mountpoint
 pub fn mount(fstype: &str, dev: &str, dst: &str) -> Result<(), Error> {
-    if let Err(err) = nix::mount::mount(Some(dev), dst, Some(fstype), MsFlags::MS_NOATIME, Option::<&str>::None) {
+    mount_with_flags(fstype, dev, dst, MsFlags::MS_NOATIME)
+}
+
+/// Mounts mountpoint with specific flags
+pub fn mount_with_flags(fstype: &str, dev: &str, dst: &str, flags: MsFlags) -> Result<(), Error> {
+    if let Err(err) = nix::mount::mount(Some(dev), dst, Some(fstype), flags, Option::<&str>::None) {
         return Err(Error::new(
             std::io::ErrorKind::NotConnected,
             format!("Failed to mount {} on {} as {}: {}", fstype, dev, dst, err),
         ));
     } else {
-        log::debug!("Mounted {} at {} as {}", dev, dst, fstype);
+        log::debug!("Mounted {} at {} as {} with flags {:?}", dev, dst, fstype, flags);
     }
 
     Ok(())
