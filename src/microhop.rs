@@ -58,6 +58,39 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) {
     }
 }
 
+/// Parse device specification and resolve to device path
+/// Supports: uuid=<UUID>, label=<LABEL>, /dev/path, plain UUID, plain label
+pub fn resolve_device_path<'a>(device_spec: &'a str, blkid: &'a BlkInfo) -> Option<&'a str> {
+    if device_spec.starts_with("uuid=") || device_spec.to_lowercase().starts_with("uuid=") {
+        let uuid = &device_spec[5..];
+
+        if let Some(blkdev) = blkid.by_uuid(uuid) {
+            return blkdev.get_path().to_str();
+        }
+    } else if device_spec.starts_with("label=") || device_spec.to_lowercase().starts_with("label=") {
+        let label = &device_spec[6..];
+
+        if let Some(blkdev) = blkid.by_label(label) {
+            return blkdev.get_path().to_str();
+        }
+    } else if device_spec.starts_with("/dev/") {
+        // Use device path directly without adding any suffix
+        return Some(device_spec);
+    } else if Uuid::parse_str(device_spec).is_ok() {
+        // Plain UUID (for backward compatibility)
+        if let Some(blkdev) = blkid.by_uuid(device_spec) {
+            return blkdev.get_path().to_str();
+        }
+    } else {
+        // Assume plain label (for backward compatibility)
+        if let Some(blkdev) = blkid.by_label(device_spec) {
+            return blkdev.get_path().to_str();
+        }
+    }
+
+    None
+}
+
 /// Get block devices
 pub fn get_blk_devices(cfg: &MhConfig) -> Result<(String, Vec<SystemDir<String>>), Error> {
     let mut root_fstype = String::new();
