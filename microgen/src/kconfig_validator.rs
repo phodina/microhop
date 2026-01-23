@@ -140,6 +140,17 @@ impl KConfigValidator {
     pub fn validate(&self, mh_config: &profile::cfg::MhConfig, filesystems: Option<&[String]>, block_devices: Option<&[String]>) -> Result<ValidationResult, Error> {
         let mut result = ValidationResult::new();
 
+        if let Some(overlay_cfg) = mh_config.get_overlayfs() {
+            if self.is_enabled("OVERLAY_FS") {
+                result.add_success("OVERLAY_FS", &format!("Overlayfs support is enabled (device: {})", overlay_cfg.device));
+            } else {
+                result.add_error(
+                    "OVERLAY_FS",
+                    "Overlayfs is configured in microhop.conf but CONFIG_OVERLAY_FS is not enabled in kernel. System will fail to boot!",
+                );
+            }
+        }
+
         // Check if CONFIG_MODULES is enabled if modules are required
         let modules = mh_config.get_modules();
         if !modules.is_empty() {
