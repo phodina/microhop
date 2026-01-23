@@ -2,6 +2,7 @@ mod analyser;
 mod clidef;
 mod rdgen;
 mod rdpack;
+mod kconfig_validator;
 
 use clap::ArgMatches;
 use colored::Colorize;
