@@ -1,8 +1,8 @@
 mod analyser;
 mod clidef;
+mod kconfig_validator;
 mod rdgen;
 mod rdpack;
-mod kconfig_validator;
 
 use clap::ArgMatches;
 use colored::Colorize;
@@ -13,9 +13,19 @@ use std::{error::Error, io, path::PathBuf};
 static VERSION: &str = "0.1.0";
 static APPNAME: &str = "microgen";
 
-/// Run information section
 fn run_info(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let rfs = params.get_one::<String>("list").map(|v| v.as_str());
+
+    if params.get_flag("filesystems") {
+        kconfig_validator::print_supported_filesystems();
+        return Ok(());
+    }
+
+    if params.get_flag("block-devices") {
+        kconfig_validator::print_supported_block_devices();
+        return Ok(());
+    }
+
     let k_info = kmoddep::get_kernel_infos(rfs)?;
 
     if rfs.is_some() {
@@ -79,9 +89,19 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         if let Some(kconfig_path) = kernel_config {
             println!("{}", "Validating kernel configuration...".bright_cyan().bold());
+
+            let filesystems: Option<Vec<String>> = params
+                .get_many::<String>("filesystems")
+                .map(|values| values.map(|s| s.to_string()).collect());
+
+            // Get optional block devices list from CLI
+            let block_devices: Option<Vec<String>> = params
+                .get_many::<String>("block-devices")
+                .map(|values| values.map(|s| s.to_string()).collect());
+
             match kconfig_validator::KConfigValidator::from_file(kconfig_path) {
                 Ok(validator) => {
-                    match validator.validate(&cfg) {
+                    match validator.validate(&cfg, filesystems.as_deref(), block_devices.as_deref()) {
                         Ok(result) => {
                             result.print();
 
@@ -143,7 +163,7 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     PathBuf::from(params.get_one::<String>("output").unwrap()),
                     PathBuf::from(params.get_one::<String>("file").unwrap()),
                 )?;
-             }
+            }
         }
     } else {
         clidef::clidef(VERSION, APPNAME).print_help().unwrap();
