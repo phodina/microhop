@@ -1,3 +1,4 @@
+mod cmdline;
 mod kmodprobe;
 mod logger;
 mod microhop;
