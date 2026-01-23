@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := build
 .PHONY:build microhop-release-static microhop-debug-static microgen-release microgen-debug _reset_placeholder
 
-ARCH := $(shell uname -p)
+ARCH := $(shell uname -m)
 ARC_VERSION := $(shell cat src/microhop.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
 ARC_NAME := microhop-${ARC_VERSION}
 
