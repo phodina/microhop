@@ -1,5 +1,6 @@
 mod analyser;
 mod clidef;
+mod kconfig_validator;
 mod rdgen;
 mod rdpack;
 
