@@ -40,15 +40,56 @@ fn main() -> Result<(), Error> {
     }
     mount_fs(&blk_mpt);
 
+    let use_overlayfs = cfg.use_overlayfs();
+    let final_root = if let Some(overlay_cfg) = cfg.get_overlayfs() {
+        log::info!("Overlayfs enabled in configuration");
+
+        if !syslib::fs::is_overlayfs_supported() {
+            log::error!("Overlayfs requested but not supported by kernel!");
+            log::error!("Make sure CONFIG_OVERLAY_FS is enabled in kernel config");
+            return Err(Error::new(std::io::ErrorKind::Unsupported, "Overlayfs not supported"));
+        }
+
+        use crate::microhop::resolve_device_path;
+        let mut blkid = syslib::blk::BlkInfo::new();
+        blkid.probe_devices()?;
+
+        let overlay_dev_path = resolve_device_path(&overlay_cfg.device, &blkid).ok_or_else(|| {
+            Error::new(std::io::ErrorKind::NotFound, format!("Could not resolve overlayfs device: {}", overlay_cfg.device))
+        })?;
+
+        log::info!("Using overlayfs device: {} ({})", overlay_dev_path, overlay_cfg.device);
+
+        let lower_dir = temp_mpt;
+        let overlay_mount = "/overlay";
+        let merged_dir = "/overlay/merged";
+
+        unistd::mkdir(overlay_mount, stat::Mode::S_IRWXU)?;
+
+        syslib::fs::mount("ext4", overlay_dev_path, overlay_mount)?;
+        log::info!("Mounted overlayfs backing device at {}", overlay_mount);
+
+        let upper_full = format!("{}/{}", overlay_mount, overlay_cfg.upper);
+        let work_full = format!("{}/{}", overlay_mount, overlay_cfg.workdir);
+
+        unistd::mkdir(merged_dir, stat::Mode::S_IRWXU)?;
+
+        syslib::fs::mount_overlayfs(lower_dir, &upper_full, &work_full, merged_dir)?;
+
+        merged_dir
+    } else {
+        temp_mpt
+    };
+
     // Remount sysfs, switch root
     log::debug!("switching root");
     for t in SYS_MPT {
-        let tgt = format!("{}{}", temp_mpt, t.dst);
+        let tgt = format!("{}{}", final_root, t.dst);
         nix::mount::mount(Some(t.dst), tgt.as_str(), Some(t.fstype), MsFlags::MS_MOVE, Option::<&str>::None)?;
     }
 
     // Pivot the system
-    syslib::fs::pivot(temp_mpt, root_fstype.as_str())?;
+    syslib::fs::pivot(final_root, if use_overlayfs { "overlay" } else { root_fstype.as_str() })?;
 
     // Start external init
     log::info!("Launching init at {}", cfg.get_init_path());

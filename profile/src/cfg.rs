@@ -44,6 +44,14 @@ impl MhConfDisk {
     }
 }
 
+/// Overlayfs configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OverlayfsConfig {
+    pub device: String,
+    pub upper: String,
+    pub workdir: String,
+}
+
 /// Main configuration struct
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct MhConfig {
@@ -52,6 +60,7 @@ pub struct MhConfig {
     init: Option<String>,
     sysroot: Option<String>,
     log: Option<String>,
+    overlayfs: Option<OverlayfsConfig>,
 }
 
 impl MhConfig {
@@ -115,6 +124,14 @@ impl MhConfig {
     /// Get a sysroot temp path
     pub fn get_sysroot_path(&self) -> String {
         self.sysroot.to_owned().unwrap_or("/sysroot".to_string())
+    }
+
+    pub fn use_overlayfs(&self) -> bool {
+        self.overlayfs.is_some()
+    }
+
+    pub fn get_overlayfs(&self) -> Option<&OverlayfsConfig> {
+        self.overlayfs.as_ref()
     }
 }
 
