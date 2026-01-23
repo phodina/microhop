@@ -105,31 +105,43 @@ pub fn get_blk_devices(cfg: &MhConfig) -> Result<(String, Vec<SystemDir<String>>
     }
 
     let mut blk_mpt: Vec<SystemDir<String>> = Vec::new();
-    for dev in cfg.get_disks()? {
-        let mpt = dev.get_mountpoint().trim_end_matches('/').to_string();
-        if mpt.is_empty() && root_fstype.is_empty() {
-            root_fstype = dev.get_fstype().into();
-        }
+    let cmdline = crate::cmdline::CmdLine::default();
 
-        let mut devpath = "";
-        if Uuid::parse_str(dev.get_device()).is_ok() {
-            if let Some(blkdev) = blkid.by_uuid(dev.get_device()) {
-                devpath = blkdev.get_path().to_str().unwrap();
-            }
-        } else if dev.get_device().starts_with("/dev") {
-            devpath = dev.get_device();
-        } else {
-            // label
-            if let Some(blkdev) = blkid.by_label(dev.get_device()) {
-                devpath = blkdev.get_path().to_str().unwrap();
-            }
-        }
+    if let Some(root_device) = cmdline.get_root_device() {
+        log::info!("Using root device from kernel cmdline: {}", root_device);
 
-        if devpath.is_empty() {
-            log::warn!("Unknown device: {}", dev.get_device());
-        } else {
-            let dir = SystemDir::new(dev.get_fstype().into(), devpath.into(), format!("{}{}", &cfg.get_sysroot_path(), mpt));
+        let root_fs = cmdline.get_root_fstype().unwrap_or("ext4");
+        let _root_opts = cmdline.get_root_options().unwrap_or("rw");
+
+        root_fstype = root_fs.to_string();
+
+        let devpath = resolve_device_path(root_device, &blkid);
+
+        if let Some(devpath) = devpath {
+            log::info!("Resolved root device to: {}", devpath);
+            let dir = SystemDir::new(root_fs.to_string(), devpath.to_string(), cfg.get_sysroot_path());
             blk_mpt.push(dir);
+        } else {
+            log::error!("Could not resolve root device from cmdline: {}", root_device);
+            return Err(Error::new(std::io::ErrorKind::NotFound, "Root device not found"));
+        }
+    } else {
+        log::info!("No root device in kernel cmdline, using configuration file");
+        for dev in cfg.get_disks()? {
+            let mpt = dev.get_mountpoint().trim_end_matches('/').to_string();
+            if mpt.is_empty() && root_fstype.is_empty() {
+                root_fstype = dev.get_fstype().into();
+            }
+
+            let device_spec = dev.get_device();
+            let devpath = resolve_device_path(device_spec, &blkid);
+
+            if let Some(devpath) = devpath {
+                let dir = SystemDir::new(dev.get_fstype().into(), devpath.into(), format!("{}{}", &cfg.get_sysroot_path(), mpt));
+                blk_mpt.push(dir);
+            } else {
+                log::warn!("Unknown device: {}", device_spec);
+            }
         }
     }
 
