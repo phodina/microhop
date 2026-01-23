@@ -23,9 +23,14 @@ pub fn clidef(version: &'static str, appname: &'static str) -> Command {
                         .long("list")
                         .value_name("PATH")
                         .help("List available kernel versions in a given root filesystem")
-                        .conflicts_with_all(["lsmod"]),
+                        .conflicts_with_all(["lsmod", "filesystems", "block-devices"]),
                 )
-                .arg(Arg::new("lsmod").short('m').long("lsmod").action(clap::ArgAction::SetTrue).help("Just a fancy lsmod")),
+                .arg(Arg::new("lsmod").short('m').long("lsmod").action(clap::ArgAction::SetTrue).help("Just a fancy lsmod")
+                    .conflicts_with_all(["filesystems", "block-devices"]))
+                .arg(Arg::new("filesystems").long("filesystems").action(clap::ArgAction::SetTrue)
+                    .help("Show supported filesystems and their kernel config options"))
+                .arg(Arg::new("block-devices").long("block-devices").action(clap::ArgAction::SetTrue)
+                    .help("Show supported block devices and their kernel config options")),
         )
         .subcommand(Command::new("analyse").about("Analyse current system and generate a profile from it"))
         .subcommand(
@@ -54,6 +59,20 @@ pub fn clidef(version: &'static str, appname: &'static str) -> Command {
                         .requires("kernel-config")
                         .requires("config")
                         .help("Only validate kernel config against microhop.conf, don't generate initramfs"),
+                )
+                .arg(
+                    Arg::new("filesystems")
+                        .long("filesystems")
+                        .value_name("FS_TYPES")
+                        .help("Comma-separated list of filesystem types to validate (e.g., squashfs,ext4). If not specified, filesystem validation will issue warnings only")
+                        .value_delimiter(','),
+                )
+                .arg(
+                    Arg::new("block-devices")
+                        .long("block-devices")
+                        .value_name("BLK_TYPES")
+                        .help("Comma-separated list of block device types to validate (e.g., virtio_blk,nvme). If not specified, block device validation will issue warnings only")
+                        .value_delimiter(','),
                 )
                 .arg(
                     Arg::new("extract")
