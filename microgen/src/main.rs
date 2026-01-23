@@ -58,6 +58,9 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let x_mods: Vec<String> = params.get_many::<String>("extract").unwrap_or_default().map(|s| s.to_string()).collect();
     let k_info = kmoddep::get_kernel_infos(Some(params.get_one::<String>("root").unwrap()));
     let profile = params.get_one::<String>("config");
+    let kernel_config = params.get_one::<String>("kernel-config");
+    let validate_only = params.get_flag("validate-only");
+
     if let Err(k_info) = k_info {
         println!("Unable to get the information about the kernel: {}", k_info);
         return Ok(());
@@ -73,22 +76,74 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
         }
     } else if let Some(profile) = profile {
         let cfg = profile::cfg::get_mh_config(Some(profile))?;
-        if let Ok(k_info) = k_info {
-            let kfo: KernelInfo;
 
-            // Rewrite this better
-            if k_info.len() > 1 {
-                panic!("Need to implement matching a proper kernel from CLI")
-            } else {
-                kfo = k_info[0].to_owned();
+        if let Some(kconfig_path) = kernel_config {
+            println!("{}", "Validating kernel configuration...".bright_cyan().bold());
+            match kconfig_validator::KConfigValidator::from_file(kconfig_path) {
+                Ok(validator) => {
+                    match validator.validate(&cfg) {
+                        Ok(result) => {
+                            result.print();
+
+                            if validate_only {
+                                // Exit after validation
+                                if result.has_errors() {
+                                    return Err(Box::new(io::Error::new(
+                                        io::ErrorKind::InvalidData,
+                                        "Kernel configuration validation failed",
+                                    )));
+                                }
+                                return Ok(());
+                            }
+
+                            if result.has_errors() {
+                                return Err(Box::new(io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "Cannot generate initramfs: kernel configuration is incompatible",
+                                )));
+                            }
+
+                            if result.has_warnings() {
+                                println!("{}", "⚠ Continuing with warnings...".bright_yellow());
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("{}", format!("Validation error: {}", e).bright_red());
+                            return Err(Box::new(e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{}", format!("Failed to parse kernel config: {}", e).bright_red());
+                    return Err(Box::new(e));
+                }
             }
-            println!("Generating initramfs");
-            IrfsGen::generate(
-                &kfo,
-                cfg,
-                PathBuf::from(params.get_one::<String>("output").unwrap()),
-                PathBuf::from(params.get_one::<String>("file").unwrap()),
-            )?;
+        } else if validate_only {
+            return Err(Box::new(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--validate-only requires --kernel-config to be specified",
+            )));
+        }
+
+        // Generate initramfs if not validation-only
+        if !validate_only {
+            if let Ok(k_info) = k_info {
+                let kfo: KernelInfo;
+
+                // Rewrite this better
+                if k_info.len() > 1 {
+                    panic!("Need to implement matching a proper kernel from CLI")
+                } else {
+                    kfo = k_info[0].to_owned();
+                }
+                println!("Generating initramfs");
+                IrfsGen::generate(
+                    &kfo,
+                    cfg,
+                    PathBuf::from(params.get_one::<String>("output").unwrap()),
+                    PathBuf::from(params.get_one::<String>("file").unwrap()),
+                )?;
+            }
         }
     } else {
         clidef::clidef(VERSION, APPNAME).print_help().unwrap();

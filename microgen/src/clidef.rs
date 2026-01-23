@@ -42,6 +42,20 @@ pub fn clidef(version: &'static str, appname: &'static str) -> Command {
                         .help("Path to the initramfs configuration (profile)"),
                 )
                 .arg(
+                    Arg::new("kernel-config")
+                        .long("kernel-config")
+                        .value_name("PATH")
+                        .help("Path to kernel .config file for validation against microhop.conf requirements"),
+                )
+                .arg(
+                    Arg::new("validate-only")
+                        .long("validate-only")
+                        .action(clap::ArgAction::SetTrue)
+                        .requires("kernel-config")
+                        .requires("config")
+                        .help("Only validate kernel config against microhop.conf, don't generate initramfs"),
+                )
+                .arg(
                     Arg::new("extract")
                         .short('x')
                         .long("extract")
