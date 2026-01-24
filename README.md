@@ -133,3 +133,7 @@ To achieve this, do the following:
    ```
 
 That's basically it and hopefully it will even boot... 😉
+
+## [Changelog](./CHANGELOG.md)
+
+Feel free to checkout the changes between the releases.
