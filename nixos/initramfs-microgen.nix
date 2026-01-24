@@ -10,7 +10,9 @@ pkgs.stdenv.mkDerivation {
   buildPhase = ''
     mkdir -p $TMPDIR/rootfs/lib/modules
 
-    cp -r ${kernel}/lib/modules/* $TMPDIR/rootfs/lib/modules/ || true
+    if [ -d "${kernel}/lib/modules" ] && [ "$(ls -A ${kernel}/lib/modules)" ]; then
+      cp -r ${kernel}/lib/modules/* $TMPDIR/rootfs/lib/modules/
+    fi
 
     mkdir -p $out
 
