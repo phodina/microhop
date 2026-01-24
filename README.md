@@ -46,6 +46,23 @@ you will need the following packages on openSUSE Leap:
 - `libblkid-devel-static`
 - `glibc-devel-static`
 
+### Building using Nix
+
+It's possible to build the binaries using [Nix](https://nixos.org/).
+
+The package is statically linked and uses [muslc](https://www.musl-libc.org/) due to dependency on
+`util-linuxMinimal` which provides `libblkid`.
+
+```shell
+# Build the aarch64 variant
+$ nix build .#packages.aarch64-linux.microhop
+
+$ file result/bin/microhop
+result/bin/microhop: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, stripped
+
+$ du -b result/bin/microhop
+1186064 result/bin/microhop
+```
 
 ### Configuration
 
