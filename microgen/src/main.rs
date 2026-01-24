@@ -148,17 +148,20 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
         // Generate initramfs if not validation-only
         if !validate_only {
             if let Ok(k_info) = k_info {
-                let kfo: KernelInfo;
-
-                // Rewrite this better
-                if k_info.len() > 1 {
-                    panic!("Need to implement matching a proper kernel from CLI")
-                } else {
-                    kfo = k_info[0].to_owned();
-                }
+                let kfo: Option<KernelInfo> = match k_info.len() {
+                    0 => {
+                        println!("ℹ No kernel modules found, assuming monolithic kernel");
+                        None
+                    }
+                    1 => Some(k_info[0].to_owned()),
+                    _ => return Err(Box::new(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Multiple kernels found; please select one explicitly"
+                    ))),
+                };
                 println!("Generating initramfs");
                 IrfsGen::generate(
-                    &kfo,
+                    kfo.as_ref(),
                     cfg,
                     PathBuf::from(params.get_one::<String>("output").unwrap()),
                     PathBuf::from(params.get_one::<String>("file").unwrap()),

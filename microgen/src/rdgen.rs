@@ -23,8 +23,8 @@ const BLINKENLICHTEN: &str = "# Achtung Alles Lookenskepers!
 # Relaxen und watchen das blinkenlichten.";
 
 pub struct IrfsGen {
-    /// Target kernel
-    kinfo: KernelInfo,
+    /// Target kernel (optional: monolithic kernel has none)
+    kinfo: Option<KernelInfo>,
 
     /// Profile (config)
     cfg: MhConfig,
@@ -43,18 +43,34 @@ pub struct IrfsGen {
 }
 
 impl IrfsGen {
-    pub fn generate(kinfo: &KernelInfo, cfg: MhConfig, dst: PathBuf, fname: PathBuf) -> Result<(), Error> {
-        if !dst.exists() {
-            fs::create_dir_all(&dst)?;
-        } else {
-            return Err(Error::new(InvalidData, format!("Given destination path {:?} already exists", dst)));
+    pub fn generate(kinfo: Option<&KernelInfo>, cfg: MhConfig, dst: PathBuf, fname: PathBuf) -> Result<(), Error> {
+        if dst.exists() {
+            return Err(Error::new(
+                InvalidData,
+                format!("Given destination path {:?} already exists", dst),
+            ));
         }
 
-        let mut irfsg = IrfsGen { kinfo: kinfo.to_owned(), cfg, dst, dst_fn: fname, _kmod_d: vec![], _kmod_m: vec![] };
+        fs::create_dir_all(&dst)?;
+
+        let mut irfsg = IrfsGen {
+            kinfo: kinfo.cloned(),
+            cfg,
+            dst,
+            dst_fn: fname,
+            _kmod_d: vec![],
+            _kmod_m: vec![],
+        };
 
         let kroot = irfsg.create_ramfs_dirs()?;
         irfsg.setup_microhop()?;
-        irfsg.copy_kernel_modules(kroot.as_str())?;
+
+        if irfsg.kinfo.is_some() {
+            irfsg.copy_kernel_modules(kroot.as_str())?;
+        } else {
+            println!("ℹ No kernel modules found, skipping module copy");
+        }
+
         irfsg.write_boot_config()?;
         irfsg.pack()?;
 
@@ -80,22 +96,52 @@ impl IrfsGen {
 
     /// Create directories for the ramfs.
     fn create_ramfs_dirs(&self) -> Result<String, Error> {
-        let kroot = format!("lib/modules/{}", self.kinfo.get_kernel_path().as_path().file_name().unwrap().to_str().unwrap());
-        for d in ["bin", "etc", "proc", "dev", "sys", self.cfg.get_sysroot_path().trim_start_matches('/'), kroot.as_str()] {
-            fs::create_dir_all(self.dst.join(d.trim_start_matches('/')))?;
+        let mut dirs: Vec<String> = vec![
+            "bin".to_string(),
+            "etc".to_string(),
+            "proc".to_string(),
+            "dev".to_string(),
+            "sys".to_string(),
+            self.cfg.get_sysroot_path().trim_start_matches('/').to_string(),
+        ];
+
+        let kroot = if let Some(kinfo) = &self.kinfo {
+            let kr = format!(
+                "lib/modules/{}",
+                kinfo
+                    .get_kernel_path()
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            );
+            dirs.push(kr.clone());
+            kr
+        } else {
+            String::new()
+        };
+
+        for d in dirs {
+            fs::create_dir_all(self.dst.join(d))?;
         }
+
         Ok(kroot)
     }
 
     /// This will find what modules are needed in the source kernel and will copy to the target only those
     fn copy_kernel_modules(&mut self, kroot: &str) -> Result<(), Error> {
+        let kinfo = match &self.kinfo {
+            Some(k) => k,
+            None => return Ok(()),
+        };
+
         // First get only main modules, and then get dependencies for them
-        for (kmod, kmod_deps) in self.kinfo.get_deps_for(
+        for (kmod, kmod_deps) in kinfo.get_deps_for(
             &self
                 .cfg
                 .get_modules()
                 .iter()
-                .filter(|e| !self.kinfo.is_dep(e))
+                .filter(|e| !kinfo.is_dep(e))
                 .collect::<HashSet<_>>()
                 .into_iter()
                 .cloned()
@@ -117,7 +163,12 @@ impl IrfsGen {
 
     /// Copy one kernel module
     fn _copy_kmod(&self, kmod: &str, kroot: &str) -> Result<(), Error> {
-        let msrc = self.kinfo.get_kernel_path().join(kmod);
+        let kinfo = match &self.kinfo {
+            Some(k) => k,
+            None => return Ok(()),
+        };
+
+        let msrc = kinfo.get_kernel_path().join(kmod);
         let mdst = self.dst.join(kroot).join(kmod);
 
         fs::create_dir_all(mdst.as_path().parent().unwrap())?;
