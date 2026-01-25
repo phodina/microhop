@@ -45,6 +45,9 @@ build-release:
 
 	@printf "\n\nDone. Debug version is built for you in target/release\n\n"
 
+clean:
+	cargo clean
+
 test:
 	#cargo nextest run --workspace
 
