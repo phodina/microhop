@@ -66,6 +66,17 @@ $ du -b result/bin/microhop
 1186064 result/bin/microhop
 ```
 
+To run the demo shown in the captured [asciinema](https://asciinema.org/) do the following:
+```
+# To exit QEMU type Ctrl+A X
+nix run .#boot-overlayfs-musl
+```
+
+To list available nix derivations run:
+```
+nix flake show
+```
+
 ### Configuration
 
 Configuration is also a profile. This is the basic start:
