@@ -77,6 +77,8 @@ To list available nix derivations run:
 nix flake show
 ```
 
+To speed up the build there's a [Cachix](https://app.cachix.org/cache/mobile-nixos-next#search) available.
+
 ### Configuration
 
 Configuration is also a profile. This is the basic start:

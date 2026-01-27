@@ -7,7 +7,12 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+    {
+      nixConfig = {
+        extra-substituters = [ "https://mobile-nixos-next.cachix.org" ];
+        extra-trusted-public-keys = [ "mobile-nixos-next.cachix.org-1:tPehb3T4X8DKn3sVsOUu010Tw8MFElOSizi2w3AQc5Y=" ];
+      };
+    } // flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
