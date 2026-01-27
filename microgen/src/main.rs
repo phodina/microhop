@@ -160,11 +160,17 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
                     }
                 };
                 println!("Generating initramfs");
+
+                let firmware_list_path = params.get_one::<String>("firmware-list").map(PathBuf::from);
+                let firmware_path = PathBuf::from(params.get_one::<String>("root").unwrap());
+
                 IrfsGen::generate(
                     kfo.as_ref(),
                     cfg,
                     PathBuf::from(params.get_one::<String>("output").unwrap()),
                     PathBuf::from(params.get_one::<String>("file").unwrap()),
+                    firmware_list_path,
+                    firmware_path,
                 )?;
             }
         }

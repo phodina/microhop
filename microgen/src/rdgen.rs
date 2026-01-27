@@ -4,7 +4,7 @@ use std::{
     collections::HashSet,
     env,
     fs::{self, File},
-    io::{BufWriter, Error, ErrorKind::InvalidData, Write},
+    io::{BufRead, BufReader, BufWriter, Error, ErrorKind::InvalidData, Write},
     os::unix::fs::{symlink, PermissionsExt},
     path::{Path, PathBuf},
 };
@@ -40,17 +40,35 @@ pub struct IrfsGen {
 
     /// Main modules
     _kmod_m: Vec<String>,
+
+    /// Firmware list file path
+    firmware_list_path: Option<PathBuf>,
+
+    /// Root filesystem path
+    firmware_path: PathBuf,
 }
 
 impl IrfsGen {
-    pub fn generate(kinfo: Option<&KernelInfo>, cfg: MhConfig, dst: PathBuf, fname: PathBuf) -> Result<(), Error> {
+    pub fn generate(
+        kinfo: Option<&KernelInfo>, cfg: MhConfig, dst: PathBuf, fname: PathBuf, firmware_list_path: Option<PathBuf>,
+        firmware_path: PathBuf,
+    ) -> Result<(), Error> {
         if dst.exists() {
             return Err(Error::new(InvalidData, format!("Given destination path {:?} already exists", dst)));
         }
 
         fs::create_dir_all(&dst)?;
 
-        let mut irfsg = IrfsGen { kinfo: kinfo.cloned(), cfg, dst, dst_fn: fname, _kmod_d: vec![], _kmod_m: vec![] };
+        let mut irfsg = IrfsGen {
+            kinfo: kinfo.cloned(),
+            cfg,
+            dst,
+            dst_fn: fname,
+            _kmod_d: vec![],
+            _kmod_m: vec![],
+            firmware_list_path,
+            firmware_path,
+        };
 
         let kroot = irfsg.create_ramfs_dirs()?;
         irfsg.setup_microhop()?;
@@ -59,6 +77,10 @@ impl IrfsGen {
             irfsg.copy_kernel_modules(kroot.as_str())?;
         } else {
             println!("ℹ No kernel modules found, skipping module copy");
+        }
+
+        if irfsg.firmware_list_path.is_some() {
+            irfsg.copy_firmware_files()?;
         }
 
         irfsg.write_boot_config()?;
@@ -159,6 +181,106 @@ impl IrfsGen {
         Ok(())
     }
 
+    /// Copy firmware files based on firmware list file
+    fn copy_firmware_files(&self) -> Result<(), Error> {
+        let firmware_list_path = match &self.firmware_list_path {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+
+        let file = File::open(firmware_list_path).map_err(|e| {
+            Error::new(std::io::ErrorKind::NotFound, format!("Failed to open firmware list file {:?}: {}", firmware_list_path, e))
+        })?;
+        let reader = BufReader::new(file);
+        let firmware_base = self.cfg.get_firmware_base();
+
+        for (line_num, line) in reader.lines().enumerate() {
+            let line = line?;
+            let line = line.trim();
+
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            // Parse SOURCE_PATH:DESTINATION_PATH
+            let parts: Vec<&str> = line.splitn(2, ':').collect();
+            if parts.len() != 2 {
+                return Err(Error::new(
+                    InvalidData,
+                    format!("Invalid firmware entry format at line {}: '{}' (expected SOURCE:DEST)", line_num + 1, line),
+                ));
+            }
+
+            let source_path = self.firmware_path.join(parts[0].trim());
+            let dest_rel_path = parts[1].trim();
+            let dest_path = self.dst.join(firmware_base.trim_start_matches('/')).join(dest_rel_path);
+
+            if !source_path.exists() {
+                return Err(Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("Firmware file not found at line {}: {:?}", line_num + 1, source_path),
+                ));
+            }
+
+            let real_source = if source_path.is_symlink() {
+                let target = fs::read_link(&source_path).map_err(|e| {
+                    Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        format!("Failed to read symlink at line {}: {:?} - {}", line_num + 1, source_path, e),
+                    )
+                })?;
+
+                let resolved = if target.is_absolute() { target } else { source_path.parent().unwrap().join(target) };
+
+                if !resolved.exists() {
+                    return Err(Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("Broken symlink at line {}: {:?} -> {:?}", line_num + 1, source_path, resolved),
+                    ));
+                }
+                resolved
+            } else {
+                source_path.clone()
+            };
+
+            if dest_path.exists() {
+                return Err(Error::new(
+                    InvalidData,
+                    format!("Destination firmware file already exists at line {}: {:?}", line_num + 1, dest_path),
+                ));
+            }
+
+            let metadata = fs::metadata(&real_source).map_err(|e| {
+                Error::other(format!("Failed to get metadata at line {}: {:?} - {}", line_num + 1, real_source, e))
+            })?;
+
+            let size = metadata.len();
+
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            fs::copy(&real_source, &dest_path).map_err(|e| {
+                Error::other(format!(
+                    "Failed to copy firmware file at line {}: {:?} -> {:?} - {}",
+                    line_num + 1,
+                    real_source,
+                    dest_path,
+                    e
+                ))
+            })?;
+
+            // Set read-only permissions
+            let mut perms = fs::metadata(&dest_path)?.permissions();
+            perms.set_mode(0o444);
+            fs::set_permissions(&dest_path, perms)?;
+
+            println!("Firmware: {} ({} bytes)", dest_rel_path, size);
+        }
+
+        Ok(())
+    }
+
     /// Write boot config
     fn write_boot_config(&self) -> Result<(), Error> {
         let f = File::create(self.dst.join("etc/microhop.conf"))?;
@@ -194,6 +316,11 @@ impl IrfsGen {
 
         if let Some(l) = self.cfg.get_log_level_as_str() {
             writeln!(fp, "log: {}", l)?;
+        }
+
+        if let Some(firmware) = self.cfg.get_firmware() {
+            writeln!(fp, "\nfirmware:")?;
+            writeln!(fp, "  base: {}", firmware.base)?;
         }
 
         fp.flush()?;

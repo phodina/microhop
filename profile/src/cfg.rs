@@ -52,6 +52,11 @@ pub struct OverlayfsConfig {
     pub workdir: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FirmwareConfig {
+    pub base: String,
+}
+
 /// Main configuration struct
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct MhConfig {
@@ -61,6 +66,7 @@ pub struct MhConfig {
     sysroot: Option<String>,
     log: Option<String>,
     overlayfs: Option<OverlayfsConfig>,
+    firmware: Option<FirmwareConfig>,
 }
 
 impl MhConfig {
@@ -132,6 +138,14 @@ impl MhConfig {
 
     pub fn get_overlayfs(&self) -> Option<&OverlayfsConfig> {
         self.overlayfs.as_ref()
+    }
+
+    pub fn get_firmware(&self) -> Option<&FirmwareConfig> {
+        self.firmware.as_ref()
+    }
+
+    pub fn get_firmware_base(&self) -> String {
+        self.firmware.as_ref().map(|f| f.base.clone()).unwrap_or("/lib/firmware".to_string())
     }
 }
 

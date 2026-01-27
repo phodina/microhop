@@ -53,6 +53,12 @@ pub fn clidef(version: &'static str, appname: &'static str) -> Command {
                         .help("Path to kernel .config file for validation against microhop.conf requirements"),
                 )
                 .arg(
+                    Arg::new("firmware-list")
+                        .long("firmware-list")
+                        .value_name("PATH")
+                        .help("Path to a file containing list of firmware files to include in initramfs"),
+                )
+                .arg(
                     Arg::new("validate-only")
                         .long("validate-only")
                         .action(clap::ArgAction::SetTrue)
