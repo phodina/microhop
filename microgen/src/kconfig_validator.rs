@@ -105,12 +105,6 @@ impl KConfigValidator {
         }
     }
 
-    pub fn get_value(&self, option: &str) -> Option<&String> {
-        let option = if option.starts_with("CONFIG_") { option.to_string() } else { format!("CONFIG_{}", option) };
-
-        self.config.get(&option)
-    }
-
     /// Validate kernel configuration against microhop requirements
     ///
     /// # Arguments
