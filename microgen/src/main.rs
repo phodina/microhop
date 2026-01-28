@@ -66,19 +66,45 @@ fn run_analyse(_params: &ArgMatches) -> Result<(), Box<dyn Error>> {
 /// Create a new initramfs
 fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let x_mods: Vec<String> = params.get_many::<String>("extract").unwrap_or_default().map(|s| s.to_string()).collect();
-    let k_info = kmoddep::get_kernel_infos(Some(params.get_one::<String>("root").unwrap()));
     let profile = params.get_one::<String>("config");
     let kernel_config = params.get_one::<String>("kernel-config");
     let validate_only = params.get_flag("validate-only");
 
-    if let Err(k_info) = k_info {
-        println!("Unable to get the information about the kernel: {}", k_info);
-        return Ok(());
-    }
+    // Only get kernel info if we actually need it (when extracting modules or if modules are configured)
+    let need_kernel_info = !x_mods.is_empty()
+        || (profile.is_some() && {
+            // Check if profile has modules configured
+            match profile::cfg::get_mh_config(profile.map(|x| x.as_str())) {
+                Ok(cfg) => !cfg.get_modules().is_empty(),
+                Err(_) => true, // If we can't read config, assume we might need kernel info
+            }
+        });
+
+    let k_info = if need_kernel_info {
+        match kmoddep::get_kernel_infos(Some(params.get_one::<String>("root").unwrap())) {
+            Ok(info) => Some(info),
+            Err(e) => {
+                println!("Unable to get the information about the kernel: {}", e);
+                if !x_mods.is_empty() {
+                    return Ok(());
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     if !x_mods.is_empty() {
         let krel = params.get_one::<String>("kernel").unwrap().replace('"', "");
-        for knfo in k_info.unwrap() {
+        let kernels = k_info.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No kernel information available"))?;
+        if kernels.is_empty() {
+            return Err(Box::new(io::Error::new(
+                io::ErrorKind::NotFound,
+                "No kernel modules found in the specified root filesystem",
+            )));
+        }
+        for knfo in kernels {
             let kn = knfo.get_kernel_path().file_name().unwrap().to_str().unwrap().to_string();
             if krel == kn {
                 println!("{:?}", knfo.get_deps_for(&x_mods.iter().map(|x| x.to_string()).collect::<Vec<String>>()));
@@ -145,8 +171,8 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
         // Generate initramfs if not validation-only
         if !validate_only {
-            if let Ok(k_info) = k_info {
-                let kfo: Option<KernelInfo> = match k_info.len() {
+            let kfo: Option<KernelInfo> = if let Some(k_info) = k_info {
+                match k_info.len() {
                     0 => {
                         println!("ℹ No kernel modules found, assuming monolithic kernel");
                         None
@@ -158,21 +184,26 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
                             "Multiple kernels found; please select one explicitly",
                         )))
                     }
-                };
-                println!("Generating initramfs");
+                }
+            } else {
+                // No kernel info available (no modules configured)
+                println!("ℹ No kernel modules configured, assuming monolithic kernel");
+                None
+            };
 
-                let firmware_list_path = params.get_one::<String>("firmware-list").map(PathBuf::from);
-                let firmware_path = PathBuf::from(params.get_one::<String>("root").unwrap());
+            println!("Generating initramfs");
 
-                IrfsGen::generate(
-                    kfo.as_ref(),
-                    cfg,
-                    PathBuf::from(params.get_one::<String>("output").unwrap()),
-                    PathBuf::from(params.get_one::<String>("file").unwrap()),
-                    firmware_list_path,
-                    firmware_path,
-                )?;
-            }
+            let firmware_list_path = params.get_one::<String>("firmware-list").map(PathBuf::from);
+            let firmware_path = PathBuf::from(params.get_one::<String>("root").unwrap());
+
+            IrfsGen::generate(
+                kfo.as_ref(),
+                cfg,
+                PathBuf::from(params.get_one::<String>("output").unwrap()),
+                PathBuf::from(params.get_one::<String>("file").unwrap()),
+                firmware_list_path,
+                firmware_path,
+            )?;
         }
     } else {
         clidef::clidef(VERSION, APPNAME).print_help().unwrap();
