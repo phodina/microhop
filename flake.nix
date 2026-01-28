@@ -122,7 +122,8 @@
             INITRD="${self.packages.${system}.initramfs-microgen}/initrd"
             SQUASHFS="${bootComponents.nixos-rootfs}/rootfs.squashfs"
 
-            OVERLAY_IMG=$(mktemp -u /tmp/overlay-XXXXXX.img)
+            OVERLAY_IMG=$(${pkgs.coreutils}/bin/mktemp -u /tmp/overlay-XXXXXX.img)
+            trap 'rm -f "$OVERLAY_IMG"' EXIT
             
             ${pkgs.coreutils}/bin/truncate -s 512M "$OVERLAY_IMG"
             ${pkgs.e2fsprogs}/bin/mkfs.ext4 -F -L overlay-storage "$OVERLAY_IMG"
