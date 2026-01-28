@@ -4,8 +4,8 @@ mod logger;
 mod microhop;
 
 use crate::microhop::{get_blk_devices, greet, mount_fs, SYS_MPT};
-use nix::{mount::MsFlags, sys::stat, unistd};
-use std::{ffi::CString, io::Error, path::Path};
+use nix::{mount::MsFlags, unistd};
+use std::{ffi::CString, fs::DirBuilder, io::Error, os::unix::fs::DirBuilderExt, path::Path};
 
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
@@ -28,7 +28,7 @@ fn main() -> Result<(), Error> {
     // Create sysroot entry point
     let temp_mpt = &cfg.get_sysroot_path();
     if !Path::new(temp_mpt).exists() {
-        unistd::mkdir(temp_mpt.as_str(), stat::Mode::S_IRWXU)?;
+        DirBuilder::new().recursive(true).mode(0o755).create(temp_mpt.as_str())?;
         log::debug!("Init sysroot path: {}", temp_mpt);
     }
 
@@ -64,7 +64,7 @@ fn main() -> Result<(), Error> {
         let overlay_mount = "/overlay";
         let merged_dir = "/overlay/merged";
 
-        unistd::mkdir(overlay_mount, stat::Mode::S_IRWXU)?;
+        DirBuilder::new().recursive(true).mode(0o755).create(overlay_mount)?;
 
         syslib::fs::mount("ext4", overlay_dev_path, overlay_mount)?;
         log::info!("Mounted overlayfs backing device at {}", overlay_mount);
@@ -72,7 +72,7 @@ fn main() -> Result<(), Error> {
         let upper_full = format!("{}/{}", overlay_mount, overlay_cfg.upper);
         let work_full = format!("{}/{}", overlay_mount, overlay_cfg.workdir);
 
-        unistd::mkdir(merged_dir, stat::Mode::S_IRWXU)?;
+        DirBuilder::new().recursive(true).mode(0o755).create(merged_dir)?;
 
         syslib::fs::mount_overlayfs(lower_dir, &upper_full, &work_full, merged_dir)?;
 
