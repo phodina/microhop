@@ -5,8 +5,8 @@
 # Not intended for production use
 
 let
-  kernel = import kernel.nix { inherit pkgs; };
-  uboot = import u-boot.nix { inherit pkgs; };
+  kernel = import ./kernel.nix { inherit pkgs; };
+  uboot = import ./u-boot.nix { inherit pkgs; };
 
   microhop = pkgs.callPackage ../. { };
 
@@ -36,7 +36,6 @@ in {
 
   environment.systemPackages = with pkgs; [
     microhop
-    customUBoot
   ];
 
   boot.kernelParams = [
