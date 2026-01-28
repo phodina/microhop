@@ -203,7 +203,7 @@ impl KConfigValidator {
                 let msg = if is_error {
                     format!("Filesystem {} is not enabled. Required for specified rootfs", fs_name)
                 } else {
-                    format!("Filesystem {} is not validated (use --filesystems to validate)", fs_name)
+                    format!("Filesystem {} is not enabled in kernel (validation downgraded to warning)", fs_name)
                 };
 
                 if is_error {
@@ -213,7 +213,12 @@ impl KConfigValidator {
                 }
             }
         } else {
-            result.add_error(fstype, &format!("Filesystem {} is not enabled. Required by microhop.conf", fstype));
+            let msg = format!("Unknown filesystem type '{}'. Use --list-filesystems to see supported types", fstype);
+            if is_error {
+                result.add_error(fstype, &msg);
+            } else {
+                result.add_warning(fstype, &msg);
+            }
         }
     }
 
@@ -233,7 +238,7 @@ impl KConfigValidator {
                 let msg = if is_error {
                     format!("Block device {} is not enabled. Required for specified block device", blk_name)
                 } else {
-                    format!("Block device {} is not validated (use --block-devices to validate)", blk_name)
+                    format!("Block device {} is not enabled in kernel (validation downgraded to warning)", blk_name)
                 };
 
                 if is_error {
