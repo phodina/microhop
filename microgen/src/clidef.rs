@@ -23,13 +23,13 @@ pub fn clidef(version: &'static str, appname: &'static str) -> Command {
                         .long("list")
                         .value_name("PATH")
                         .help("List available kernel versions in a given root filesystem")
-                        .conflicts_with_all(["lsmod", "filesystems", "block-devices"]),
+                        .conflicts_with_all(["lsmod", "list-filesystems", "list-block-devices"]),
                 )
                 .arg(Arg::new("lsmod").short('m').long("lsmod").action(clap::ArgAction::SetTrue).help("Just a fancy lsmod")
-                    .conflicts_with_all(["filesystems", "block-devices"]))
-                .arg(Arg::new("filesystems").long("filesystems").action(clap::ArgAction::SetTrue)
+                    .conflicts_with_all(["list-filesystems", "list-block-devices"]))
+                .arg(Arg::new("list-filesystems").long("list-filesystems").action(clap::ArgAction::SetTrue)
                     .help("Show supported filesystems and their kernel config options"))
-                .arg(Arg::new("block-devices").long("block-devices").action(clap::ArgAction::SetTrue)
+                .arg(Arg::new("list-block-devices").long("list-block-devices").action(clap::ArgAction::SetTrue)
                     .help("Show supported block devices and their kernel config options")),
         )
         .subcommand(Command::new("analyse").about("Analyse current system and generate a profile from it"))

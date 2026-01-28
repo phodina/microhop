@@ -16,12 +16,12 @@ static APPNAME: &str = "microgen";
 fn run_info(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let rfs = params.get_one::<String>("list").map(|v| v.as_str());
 
-    if params.get_flag("filesystems") {
+    if params.get_flag("list-filesystems") {
         kconfig_validator::print_supported_filesystems();
         return Ok(());
     }
 
-    if params.get_flag("block-devices") {
+    if params.get_flag("list-block-devices") {
         kconfig_validator::print_supported_block_devices();
         return Ok(());
     }
