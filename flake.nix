@@ -73,6 +73,9 @@
 
             cargoLock = {
               lockFile = ./Cargo.lock;
+              outputHashes = {
+                "kmoddep-0.1.5" = "sha256-6ZKyDKJKisE6Ky+L33Di8Yfv986SbS+WoOC2grS497s=";
+              };
             };
 
             nativeBuildInputs = with pkgs.pkgsStatic; [
