@@ -88,11 +88,16 @@
 
             buildInputs = with pkgs.pkgsStatic; [
               util-linuxMinimal
+              microhop
             ];
 
             buildType = "release";
 
             cargoBuildFlags = [ "-p" "microgen" ];
+
+            # Set environment variable to point to microhop binary for include_bytes!()
+            # This creates a build dependency: microhop must be built before microgen
+            MICROHOP_BINARY_PATH = "${self.packages.${system}.microhop}/bin/microhop";
 
             doCheck = false;
 
