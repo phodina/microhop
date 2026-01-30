@@ -11,6 +11,12 @@ use std::{
 
 use crate::rdpack;
 
+// Use MICROHOP_BINARY_PATH environment variable if set (for Nix builds),
+// otherwise default to "microhop" in the source directory (for Make builds)
+#[cfg(microhop_binary_path)]
+const MICROHOP: &[u8] = include_bytes!(env!("MICROHOP_BINARY_PATH"));
+
+#[cfg(not(microhop_binary_path))]
 const MICROHOP: &[u8] = include_bytes!("microhop");
 const BLINKENLICHTEN: &str = "# Achtung Alles Lookenskepers!
 #
