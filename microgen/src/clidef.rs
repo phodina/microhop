@@ -34,6 +34,19 @@ pub fn clidef(version: &'static str, appname: &'static str) -> Command {
         )
         .subcommand(Command::new("analyse").about("Analyse current system and generate a profile from it"))
         .subcommand(
+            Command::new("validate")
+                .about("Validate microhop.conf configuration file")
+                .arg_required_else_help(true)
+                .arg(
+                    Arg::new("config")
+                        .short('c')
+                        .long("config")
+                        .value_name("PATH")
+                        .help("Path to the microhop.conf file to validate")
+                        .default_value("./etc/microhop.conf"),
+                ),
+        )
+        .subcommand(
             Command::new("new")
                 .about("Create a new initramfs from a specified profile")
                 .arg_required_else_help(true)

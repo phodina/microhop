@@ -52,6 +52,129 @@ fn run_info(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Run validation of microhop.conf
+fn run_validate(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
+    let config_path = params.get_one::<String>("config").unwrap();
+
+    let cfg = match profile::cfg::get_mh_config(Some(config_path)) {
+        Ok(cfg) => {
+            println!("Configuration file parsed successfully");
+            cfg
+        }
+        Err(e) => {
+            println!("Failed to parse configuration file:");
+            println!("  {}", e.to_string().red());
+            return Err(e.into());
+        }
+    };
+
+    let mut has_errors = false;
+    let mut has_warnings = false;
+
+    println!("\n{}", "=== Modules ===".bright_yellow().bold());
+    let modules = cfg.get_modules();
+    if modules.is_empty() {
+        println!("  No modules configured (assuming monolithic kernel)");
+    } else {
+        println!("  {} module(s) configured:", modules.len());
+        for module in modules {
+            println!("    - {}", module.bright_white());
+        }
+    }
+
+    println!("\n{}", "=== Disks ===".bright_yellow().bold());
+    match cfg.get_disks() {
+        Ok(disks) => {
+            if disks.is_empty() {
+                println!("  No disks configured");
+                println!("  Note: Disks can be specified via kernel command line (root=)");
+                has_warnings = true;
+            } else {
+                println!(" {} disk(s) configured:", disks.len());
+                for disk in &disks {
+                    let device = disk.get_device();
+                    let fstype = disk.get_fstype();
+                    let mountpoint = disk.get_mountpoint();
+                    let mode = disk.get_mode();
+
+                    let device_status = if device.starts_with("uuid=") || device.starts_with("label=") {
+                        format!("Preferred format ({})", device)
+                    } else if device.starts_with("/dev/") {
+                        has_warnings = true;
+                        format!("Legacy format: {}. Consider using uuid= or label= instead", device)
+                    } else if device.len() == 36 && device.chars().filter(|c| *c == '-').count() == 4 {
+                        has_warnings = true;
+                        format!("Plain UUID detected: {}. Consider prefixing with 'uuid=' for clarity", device)
+                    } else {
+                        has_warnings = true;
+                        format!("Unknown device format: {}", device)
+                    };
+
+                    println!("    {}", device_status);
+                    println!("      Filesystem: {}", fstype.bright_white());
+                    println!("      Mountpoint: {}", mountpoint.bright_white());
+                    println!("      Mode: {}", mode.bright_white());
+                }
+            }
+        }
+        Err(e) => {
+            println!("  Invalid disk configuration:");
+            println!("    {}", e.to_string().red());
+            has_errors = true;
+        }
+    }
+
+    println!("\n{}", "=== Init ===".bright_yellow().bold());
+    let init_path = cfg.get_init_path();
+    println!("  Init path: {}", init_path.bright_white());
+
+    println!("\n{}", "=== Sysroot ===".bright_yellow().bold());
+    let sysroot_path = cfg.get_sysroot_path();
+    println!("  Sysroot path: {}", sysroot_path.bright_white());
+
+    println!("\n{}", "=== Logging ===".bright_yellow().bold());
+    if let Some(log_level) = cfg.get_log_level_as_str() {
+        let valid_levels = ["debug", "info", "quiet"];
+        if valid_levels.contains(&log_level.as_str()) {
+            println!("  Log level: {}", log_level.bright_white());
+        } else {
+            println!("  Invalid log level: '{}'. Valid options: debug, info, quiet", log_level);
+            has_warnings = true;
+        }
+    } else {
+        println!("  Log level: {} (default)", "info".bright_white());
+    }
+
+    println!("\n{}", "=== Overlayfs ===".bright_yellow().bold());
+    if let Some(overlay_cfg) = cfg.get_overlayfs() {
+        println!("  Overlayfs is configured:");
+        println!("    Device: {}", overlay_cfg.device.bright_white());
+        println!("    Upper: {}", overlay_cfg.upper.bright_white());
+        println!("    Workdir: {}", overlay_cfg.workdir.bright_white());
+        println!("  Note: Requires CONFIG_OVERLAY_FS in kernel");
+    } else {
+        println!("  Overlayfs not configured");
+    }
+
+    println!("\n{}", "=== Firmware ===".bright_yellow().bold());
+    let firmware_base = cfg.get_firmware_base();
+    println!("  Firmware base path: {}", firmware_base.bright_white());
+
+    println!("\n{}", "=== Validation Summary ===".bright_cyan().bold());
+    if has_errors {
+        println!("  Validation FAILED - configuration has errors");
+        return Err(Box::new(io::Error::new(io::ErrorKind::InvalidData, "Configuration validation failed")));
+    } else if has_warnings {
+        println!("  Validation passed with warnings");
+        println!("  Review warnings above for potential improvements");
+    } else {
+        println!("  Validation PASSED - configuration is valid");
+    }
+    println!();
+
+    Ok(())
+}
+
 /// Run analysis and profile generator
 fn run_analyse(_params: &ArgMatches) -> Result<(), Box<dyn Error>> {
     if !nix::unistd::Uid::effective().is_root() {
@@ -222,6 +345,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         match match params.subcommand() {
             Some(("new", args)) => run_new(args),
             Some(("analyse", args)) => run_analyse(args),
+            Some(("validate", args)) => run_validate(args),
             Some(("info", args)) => run_info(args),
             _ => Ok(cli.print_help()?),
         } {
