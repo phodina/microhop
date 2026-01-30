@@ -30,7 +30,28 @@ fn main() -> Result<(), Error> {
             return Err(err);
         }
     };
-    log::set_logger(&LOGGER).map(|()| log::set_max_level(cfg.get_log_level())).unwrap();
+
+    // Set up logger, defaulting to Info level if there's an issue
+    if let Err(err) = log::set_logger(&LOGGER) {
+        eprintln!("WARNING: Failed to set up logger: {}", err);
+    }
+
+    // Set log level from config, with validation
+    let log_level = cfg.get_log_level();
+    if let Some(level_str) = cfg.get_log_level_as_str() {
+        match level_str.as_str() {
+            "debug" | "info" | "quiet" => {
+                log::set_max_level(log_level);
+            }
+            _ => {
+                eprintln!("WARNING: Invalid log level '{}' in configuration. Using 'info' as default.", level_str);
+                eprintln!("  Valid options are: debug, info, quiet");
+                log::set_max_level(log::LevelFilter::Info);
+            }
+        }
+    } else {
+        log::set_max_level(log_level);
+    }
 
     greet(&cfg)?;
 
