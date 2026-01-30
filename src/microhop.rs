@@ -105,6 +105,46 @@ pub fn resolve_device_path<'a>(device_spec: &'a str, blkid: &'a BlkInfo) -> Opti
     None
 }
 
+/// List all available block devices with their UUIDs and labels
+fn list_available_devices(blkid: &BlkInfo) {
+    let devices = blkid.get_devices();
+
+    if devices.is_empty() {
+        log::error!("No block devices found on the system!");
+        return;
+    }
+
+    log::error!("Available block devices:");
+
+    for d in devices {
+        let path = d.get_path().to_str().unwrap_or("<invalid>");
+        let uuid = d.get_uuid();
+        let label = d.get_label();
+        let fstype = d.get_fstype();
+
+        if !fstype.is_empty() {
+            log::error!("Device: {}", path);
+
+            if !uuid.is_empty() {
+                log::error!("  UUID:  {}", uuid);
+                log::error!("  Use:   uuid={}", uuid);
+            } else {
+                log::error!("  UUID:  <none>");
+            }
+
+            if !label.is_empty() {
+                log::error!("  LABEL: {}", label);
+                log::error!("  Use:   label={}", label);
+            } else {
+                log::error!("  LABEL: <none>");
+            }
+
+            log::error!("  Type:  {}", fstype);
+            log::error!("  Use:   {}", path);
+        }
+    }
+}
+
 /// Get block devices
 pub fn get_blk_devices(cfg: &MhConfig) -> Result<(String, Vec<SystemDir<String>>), Error> {
     let mut root_fstype = String::new();
@@ -137,6 +177,8 @@ pub fn get_blk_devices(cfg: &MhConfig) -> Result<(String, Vec<SystemDir<String>>
             blk_mpt.push(dir);
         } else {
             log::error!("Could not resolve root device from cmdline: {}", root_device);
+            log::error!("");
+            list_available_devices(&blkid);
             return Err(Error::new(std::io::ErrorKind::NotFound, "Root device not found"));
         }
     } else {
@@ -159,7 +201,10 @@ pub fn get_blk_devices(cfg: &MhConfig) -> Result<(String, Vec<SystemDir<String>>
                 );
                 blk_mpt.push(dir);
             } else {
-                log::warn!("Unknown device: {}", device_spec);
+                log::error!("Could not resolve device from config: {}", device_spec);
+                log::error!("");
+                list_available_devices(&blkid);
+                return Err(Error::new(std::io::ErrorKind::NotFound, format!("Device not found: {}", device_spec)));
             }
         }
     }
