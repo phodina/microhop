@@ -132,9 +132,9 @@ impl BlkInfo {
         self.devices.iter().find(|&d| d.get_path().eq(&PathBuf::from(p)))
     }
 
-    /// Resolve device by label path
+    /// Resolve device by label path (case-insensitive for better compatibility)
     pub fn by_label(&self, lbl: &str) -> Option<&BlkDev> {
-        self.devices.iter().find(|&d| d.get_label().eq(lbl))
+        self.devices.iter().find(|&d| d.get_label().eq_ignore_ascii_case(lbl))
     }
 
     /// Return all known block devices
