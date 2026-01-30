@@ -38,7 +38,7 @@
             cargoLock = {
               lockFile = ./Cargo.lock;
               outputHashes = {
-                "kmoddep-0.1.5" = "sha256-6ZKyDKJKisE6Ky+L33Di8Yfv986SbS+WoOC2grS497s=";
+                "kmoddep-0.1.5" = "sha256-8Q2cL2YYpItJ/aIwiqhT3iAsMwzBemAem0deKHRxXDs=";
               };
             };
 
@@ -77,7 +77,7 @@
             cargoLock = {
               lockFile = ./Cargo.lock;
               outputHashes = {
-                "kmoddep-0.1.5" = "sha256-6ZKyDKJKisE6Ky+L33Di8Yfv986SbS+WoOC2grS497s=";
+                "kmoddep-0.1.5" = "sha256-8Q2cL2YYpItJ/aIwiqhT3iAsMwzBemAem0deKHRxXDs=";
               };
             };
 
