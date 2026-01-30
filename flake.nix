@@ -68,38 +68,43 @@
             };
           };
 
-          microgen = pkgs.pkgsStatic.rustPlatform.buildRustPackage rec {
-            pname = "microgen";
-            version = "0.1.0";
+          microgen =
+            let
+              microhopPkg = self.packages.${system}.microhop;
+            in
+            pkgs.pkgsStatic.rustPlatform.buildRustPackage rec {
+              pname = "microgen";
+              version = "0.1.0";
 
-            src = ./.;
+              src = ./.;
 
-            cargoLock = {
-              lockFile = ./Cargo.lock;
-              outputHashes = {
-                "kmoddep-0.1.5" = "sha256-8Q2cL2YYpItJ/aIwiqhT3iAsMwzBemAem0deKHRxXDs=";
+              cargoLock = {
+                lockFile = ./Cargo.lock;
+                outputHashes = {
+                  "kmoddep-0.1.5" = "sha256-8Q2cL2YYpItJ/aIwiqhT3iAsMwzBemAem0deKHRxXDs=";
+                };
               };
-            };
 
-            nativeBuildInputs = with pkgs.pkgsStatic; [
-              pkg-config
-              rustPlatform.bindgenHook
-            ];
+              nativeBuildInputs = (with pkgs.pkgsStatic; [
+                pkg-config
+                rustPlatform.bindgenHook
+              ]) ++ [
+                microhopPkg
+              ];
 
-            buildInputs = with pkgs.pkgsStatic; [
-              util-linuxMinimal
-              microhop
-            ];
+              buildInputs = with pkgs.pkgsStatic; [
+                util-linuxMinimal
+              ];
 
-            buildType = "release";
+              buildType = "release";
 
-            cargoBuildFlags = [ "-p" "microgen" ];
+              cargoBuildFlags = [ "-p" "microgen" ];
 
-            # Set environment variable to point to microhop binary for include_bytes!()
-            # This creates a build dependency: microhop must be built before microgen
-            MICROHOP_BINARY_PATH = "${self.packages.${system}.microhop}/bin/microhop";
+              # Set environment variable to point to microhop binary for include_bytes!()
+              # The nativeBuildInputs ensures this is built first
+              MICROHOP_BINARY_PATH = "${microhopPkg}/bin/microhop";
 
-            doCheck = false;
+              doCheck = false;
 
             meta = with pkgs.lib; {
               description = "Initramfs generator tool for microhop";
