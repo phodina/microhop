@@ -11,7 +11,25 @@ static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
 
 fn main() -> Result<(), Error> {
     // Set logger
-    let cfg = profile::cfg::get_mh_config(None)?;
+    let cfg = match profile::cfg::get_mh_config(None) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            eprintln!("ERROR: Failed to load configuration file /etc/microhop.conf");
+            match err.kind() {
+                std::io::ErrorKind::NotFound => {
+                    eprintln!("  Reason: Configuration file not found");
+                }
+                std::io::ErrorKind::InvalidData => {
+                    eprintln!("  Reason: Configuration file is invalid or contains syntax errors");
+                    eprintln!("  Details: {}", err);
+                }
+                _ => {
+                    eprintln!("  Details: {}", err);
+                }
+            }
+            return Err(err);
+        }
+    };
     log::set_logger(&LOGGER).map(|()| log::set_max_level(cfg.get_log_level())).unwrap();
 
     greet(&cfg)?;
