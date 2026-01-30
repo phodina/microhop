@@ -133,11 +133,23 @@ fn main() -> Result<(), Error> {
     // Start external init
     log::info!("Launching init at {}", cfg.get_init_path());
 
-    let argv: Vec<CString> = vec![CString::new(cfg.get_init_path()).unwrap()];
+    let init_path = cfg.get_init_path();
+    let init_cstring = match CString::new(init_path.clone()) {
+        Ok(s) => s,
+        Err(err) => {
+            log::error!("Failed to create init path argument: contains null bytes");
+            log::error!("Init path: {}", init_path);
+            log::error!("Details: {}", err);
+            return Err(Error::new(std::io::ErrorKind::InvalidInput, format!("Init path '{}' contains null bytes", init_path)));
+        }
+    };
+
+    let argv: Vec<CString> = vec![init_cstring.clone()];
 
     #[allow(irrefutable_let_patterns)]
-    if let Err(err) = unistd::execv(&CString::new(cfg.get_init_path()).unwrap(), &argv) {
-        log::error!("{:?}", err);
+    if let Err(err) = unistd::execv(&init_cstring, &argv) {
+        log::error!("Failed to execute init process: {:?}", err);
+        log::error!("Init path was: {}", init_path);
     }
 
     Ok(())
