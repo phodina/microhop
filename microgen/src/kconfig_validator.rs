@@ -39,6 +39,18 @@ pub const SUPPORTED_BLOCK_DEVICES: &[(&str, &str, &str)] = &[
     ("loop", "CONFIG_BLK_DEV_LOOP", "Loopback device support"),
 ];
 
+/// Get the kernel config option name for a filesystem
+pub fn get_filesystem_config(fstype: &str) -> Option<&'static str> {
+    let fstype_lower = fstype.to_lowercase();
+    SUPPORTED_FILESYSTEMS.iter().find(|(name, _, _)| name.eq_ignore_ascii_case(&fstype_lower)).map(|(_, config, _)| *config)
+}
+
+/// Get the kernel config option name for a block device
+pub fn get_block_device_config(blktype: &str) -> Option<&'static str> {
+    let blktype_lower = blktype.to_lowercase();
+    SUPPORTED_BLOCK_DEVICES.iter().find(|(name, _, _)| name.eq_ignore_ascii_case(&blktype_lower)).map(|(_, config, _)| *config)
+}
+
 pub fn print_supported_filesystems() {
     println!("\n{}", "=== Supported Filesystems ===".bright_cyan().bold());
     println!("{}", "Use these names with --filesystems option during validation\n".white());
@@ -144,22 +156,70 @@ impl KConfigValidator {
             self.validate_module(module_name, &mut result);
         }
 
+        // Validate user-specified filesystems or those from disk config
         if let Some(fs_list) = filesystems {
             for fstype in fs_list {
-                let fstype_upper = fstype.to_uppercase();
-                self.validate_filesystem(&fstype_upper, &mut result, true);
+                if let Some(config_name) = get_filesystem_config(fstype) {
+                    let config_option = config_name.trim_start_matches("CONFIG_");
+                    if self.is_enabled(config_option) {
+                        result.add_success(config_option, &format!("Filesystem {} is supported", fstype.to_lowercase()));
+                    } else {
+                        result.add_error(
+                            config_option,
+                            &format!("Filesystem {} is not enabled. Required for specified rootfs", fstype.to_lowercase()),
+                        );
+                    }
+                } else {
+                    result.add_error(
+                        fstype,
+                        &format!("Unknown filesystem type '{}'. Use --list-filesystems to see supported types", fstype),
+                    );
+                }
             }
         } else if let Ok(disks) = mh_config.get_disks() {
             for disk in disks {
-                let fstype = disk.get_fstype().to_uppercase();
-                self.validate_filesystem(&fstype, &mut result, false);
+                let fstype = disk.get_fstype();
+                if let Some(config_name) = get_filesystem_config(fstype) {
+                    let config_option = config_name.trim_start_matches("CONFIG_");
+                    if self.is_enabled(config_option) {
+                        result.add_success(config_option, &format!("Filesystem {} is supported", fstype.to_lowercase()));
+                    } else {
+                        result.add_warning(
+                            config_option,
+                            &format!("Filesystem {} is not enabled in kernel", fstype.to_lowercase()),
+                        );
+                    }
+                } else {
+                    result.add_warning(
+                        fstype,
+                        &format!("Unknown filesystem type '{}'. Use --list-filesystems to see supported types", fstype),
+                    );
+                }
             }
         }
 
+        // Validate block devices if specified
         if let Some(blk_list) = block_devices {
             for blktype in blk_list {
-                let blktype_upper = blktype.to_uppercase();
-                self.validate_block_device(&blktype_upper, &mut result, true);
+                if let Some(config_name) = get_block_device_config(blktype) {
+                    let config_option = config_name.trim_start_matches("CONFIG_");
+                    if self.is_enabled(config_option) {
+                        result.add_success(config_option, &format!("Block device {} is supported", blktype.to_lowercase()));
+                    } else {
+                        result.add_error(
+                            config_option,
+                            &format!(
+                                "Block device {} is not enabled. Required for specified block device",
+                                blktype.to_lowercase()
+                            ),
+                        );
+                    }
+                } else {
+                    result.add_error(
+                        blktype,
+                        &format!("Unknown block device type '{}'. Use --list-block-devices to see supported types", blktype),
+                    );
+                }
             }
         }
 
@@ -186,74 +246,6 @@ impl KConfigValidator {
                 &config_name,
                 &format!("Module {} is not enabled in kernel config. Required by microhop.conf", module_name),
             );
-        }
-    }
-
-    fn validate_filesystem(&self, fstype: &str, result: &mut ValidationResult, is_error: bool) {
-        let fstype_lower = fstype.to_lowercase();
-        let fs_entry = SUPPORTED_FILESYSTEMS.iter().find(|(name, config, _)| {
-            name.eq_ignore_ascii_case(&fstype_lower) || config.trim_start_matches("CONFIG_").eq_ignore_ascii_case(fstype)
-        });
-
-        if let Some((fs_name, config_name, _)) = fs_entry {
-            let config_option = config_name.trim_start_matches("CONFIG_");
-            if self.is_enabled(config_option) {
-                result.add_success(config_option, &format!("Filesystem {} is supported", fs_name));
-            } else {
-                let msg = if is_error {
-                    format!("Filesystem {} is not enabled. Required for specified rootfs", fs_name)
-                } else {
-                    format!("Filesystem {} is not enabled in kernel (validation downgraded to warning)", fs_name)
-                };
-
-                if is_error {
-                    result.add_error(config_option, &msg);
-                } else {
-                    result.add_warning(config_option, &msg);
-                }
-            }
-        } else {
-            let msg = format!("Unknown filesystem type '{}'. Use --list-filesystems to see supported types", fstype);
-            if is_error {
-                result.add_error(fstype, &msg);
-            } else {
-                result.add_warning(fstype, &msg);
-            }
-        }
-    }
-
-    fn validate_block_device(&self, blktype: &str, result: &mut ValidationResult, is_error: bool) {
-        let blktype_lower = blktype.to_lowercase();
-        let blk_entry = SUPPORTED_BLOCK_DEVICES.iter().find(|(name, config, _)| {
-            name.eq_ignore_ascii_case(&blktype_lower)
-                || config.trim_start_matches("CONFIG_").eq_ignore_ascii_case(blktype)
-                || config.trim_start_matches("CONFIG_").replace('_', "-").eq_ignore_ascii_case(blktype)
-        });
-
-        if let Some((blk_name, config_name, _)) = blk_entry {
-            let config_option = config_name.trim_start_matches("CONFIG_");
-            if self.is_enabled(config_option) {
-                result.add_success(config_option, &format!("Block device {} is supported", blk_name));
-            } else {
-                let msg = if is_error {
-                    format!("Block device {} is not enabled. Required for specified block device", blk_name)
-                } else {
-                    format!("Block device {} is not enabled in kernel (validation downgraded to warning)", blk_name)
-                };
-
-                if is_error {
-                    result.add_error(config_option, &msg);
-                } else {
-                    result.add_warning(config_option, &msg);
-                }
-            }
-        } else {
-            let msg = format!("Unknown block device type '{}'. Use --list-block-devices to see supported types", blktype);
-            if is_error {
-                result.add_error(blktype, &msg);
-            } else {
-                result.add_warning(blktype, &msg);
-            }
         }
     }
 
