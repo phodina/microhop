@@ -67,6 +67,7 @@ pub struct MhConfig {
     log: Option<String>,
     overlayfs: Option<OverlayfsConfig>,
     firmware: Option<FirmwareConfig>,
+    mask_cmdline: Option<Vec<String>>,
 }
 
 impl MhConfig {
@@ -146,6 +147,11 @@ impl MhConfig {
 
     pub fn get_firmware_base(&self) -> String {
         self.firmware.as_ref().map(|f| f.base.clone()).unwrap_or("/lib/firmware".to_string())
+    }
+
+    /// Get list of cmdline parameters to mask/ignore
+    pub fn get_mask_cmdline(&self) -> Vec<String> {
+        self.mask_cmdline.clone().unwrap_or_default()
     }
 }
 

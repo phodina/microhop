@@ -324,6 +324,15 @@ impl IrfsGen {
             writeln!(fp, "log: {}", l)?;
         }
 
+        // Preserve cmdline mask entries
+        let mask = self.cfg.get_mask_cmdline();
+        if !mask.is_empty() {
+            writeln!(fp, "\nmask_cmdline:")?;
+            for m in mask {
+                writeln!(fp, "  - {}", m)?;
+            }
+        }
+
         if let Some(firmware) = self.cfg.get_firmware() {
             writeln!(fp, "\nfirmware:")?;
             writeln!(fp, "  base: {}", firmware.base)?;

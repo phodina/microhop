@@ -8,13 +8,19 @@ pub struct CmdLine {
 
 impl CmdLine {
     pub fn new() -> Result<Self, Error> {
+        Self::new_with_mask(&[])
+    }
+
+    pub fn new_with_mask(mask: &[String]) -> Result<Self, Error> {
         let cmdline = fs::read_to_string("/proc/cmdline")?;
         let mut params = HashMap::new();
 
         for param in cmdline.split_whitespace() {
             if let Some((key, value)) = param.split_once('=') {
-                params.insert(key.to_string(), value.to_string());
-            } else {
+                if !mask.contains(&key.to_string()) {
+                    params.insert(key.to_string(), value.to_string());
+                }
+            } else if !mask.contains(&param.to_string()) {
                 params.insert(param.to_string(), String::new());
             }
         }
