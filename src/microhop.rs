@@ -1,3 +1,4 @@
+use crate::fsck;
 use profile::cfg::MhConfig;
 use std::io::Error;
 use syslib::blk::BlkInfo;
@@ -55,7 +56,7 @@ pub fn greet(cfg: &MhConfig) -> Result<(), Error> {
 }
 
 /// Mount configured filesystems in a batch
-pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) {
+pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>], cfg: &MhConfig) {
     use nix::mount::MsFlags;
 
     for t in filesystems {
@@ -68,6 +69,36 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) {
 
         if let Err(err) = syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags) {
             log::error!("Error mounting {}: {}", t.dst.as_ref(), err);
+
+            // Attempt a conservative filesystem check using the embedded fsck wrapper
+            let fstype = t.fstype.as_ref();
+            if fstype.starts_with("ext") {
+                // Determine mode
+                let mode = cfg.get_fsck_mode().map(|s| s.as_str()).unwrap_or("n");
+                let fsck_mode = match mode {
+                    "p" | "preen" | "auto" => crate::fsck::FsckMode::AutoFix,
+                    _ => crate::fsck::FsckMode::NoWrite,
+                };
+
+                match fsck::fsck_ext2(t.dev.as_ref(), fsck_mode) {
+                    Ok(code) => {
+                        log::info!("fsck returned exit code {} for device {}", code, t.dev.as_ref());
+                        if code == 0 {
+                            log::info!("Retrying mount for {} after successful fsck", t.dst.as_ref());
+                            if let Err(err2) =
+                                syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags)
+                            {
+                                log::error!("Retry mount failed {}: {}", t.dst.as_ref(), err2);
+                            }
+                        } else {
+                            log::error!("fsck reported non-zero status, not retrying mount");
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("fsck failed to run for {}: {}", t.dev.as_ref(), e);
+                    }
+                }
+            }
         };
     }
 }

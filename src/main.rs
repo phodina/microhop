@@ -1,4 +1,5 @@
 mod cmdline;
+mod fsck;
 mod kmodprobe;
 mod logger;
 mod microhop;
@@ -71,13 +72,13 @@ fn main() -> Result<(), Error> {
         log::debug!("Init sysroot path: {}", temp_mpt);
     }
 
-    mount_fs(SYS_MPT);
+    mount_fs(SYS_MPT, &cfg);
 
     let (root_fstype, blk_mpt) = get_blk_devices(&cfg)?;
     if root_fstype.is_empty() {
         log::error!("Type of the root filesystem was not detected. Please double-check the configuration!");
     }
-    mount_fs(&blk_mpt);
+    mount_fs(&blk_mpt, &cfg);
 
     let use_overlayfs = cfg.use_overlayfs();
     let final_root = if let Some(overlay_cfg) = cfg.get_overlayfs() {
