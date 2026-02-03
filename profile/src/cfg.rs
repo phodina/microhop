@@ -68,6 +68,7 @@ pub struct MhConfig {
     overlayfs: Option<OverlayfsConfig>,
     firmware: Option<FirmwareConfig>,
     mask_cmdline: Option<Vec<String>>,
+    fsck: Option<String>,
 }
 
 impl MhConfig {
@@ -147,6 +148,13 @@ impl MhConfig {
 
     pub fn get_firmware_base(&self) -> String {
         self.firmware.as_ref().map(|f| f.base.clone()).unwrap_or("/lib/firmware".to_string())
+    }
+
+    /// Get configured fsck mode. Possible values (string):
+    /// - "n" or "no" : no-fix (read-only checks)
+    /// - "p" or "preen" : automatic preen / auto-fix
+    pub fn get_fsck_mode(&self) -> Option<&String> {
+        self.fsck.as_ref()
     }
 
     /// Get list of cmdline parameters to mask/ignore

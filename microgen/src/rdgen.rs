@@ -324,6 +324,11 @@ impl IrfsGen {
             writeln!(fp, "log: {}", l)?;
         }
 
+        // Preserve fsck mode
+        if let Some(fsm) = self.cfg.get_fsck_mode() {
+            writeln!(fp, "fsck: {}", fsm)?;
+        }
+
         // Preserve cmdline mask entries
         let mask = self.cfg.get_mask_cmdline();
         if !mask.is_empty() {
