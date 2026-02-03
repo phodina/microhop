@@ -1,3 +1,5 @@
+#[cfg(feature = "gui")]
+mod gui;
 mod cmdline;
 mod fsck;
 mod kmodprobe;
@@ -54,6 +56,9 @@ fn boot_system() -> Result<(), Error> {
             return Err(err);
         }
     };
+
+    #[cfg(feature = "gui")]
+    gui::init_and_render_gui();
 
     // Set up logger, defaulting to Info level if there's an issue
     if let Err(err) = log::set_logger(&LOGGER) {
