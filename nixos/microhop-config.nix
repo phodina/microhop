@@ -23,6 +23,10 @@ pkgs.writeText "microhop.conf" ''
   # /dev/vda is the ext4 partition for the overlay upper/work dirs
   overlay_dev: /dev/vda
 
+  # Mask kernel cmdline parameters so bootloader-provided root= is ignored
+  mask_cmdline:
+    - root
+
   # Debug log output
   log: debug
 ''
