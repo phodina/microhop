@@ -35,7 +35,7 @@ fn main() {
             }
         }
 
-        println!("cargo::rustc-cfg=microhop_binary_path");
+        println!("cargo:rustc-cfg=microhop_binary_path");
     }
 
     if let Ok(e2path) = std::env::var("E2FSCK_BINARY_PATH") {
@@ -71,8 +71,10 @@ fn main() {
             }
         }
 
-        println!("cargo::rustc-cfg=e2fsck_binary_path");
+        println!("cargo:rustc-cfg=e2fsck_binary_path");
     }
 
-    println!("cargo::rustc-check-cfg=cfg(microhop_binary_path)");
+    // Inform cargo/rustc about the custom cfgs so `check-cfg` lint is happy.
+    println!("cargo:rustc-check-cfg=cfg(microhop_binary_path)");
+    println!("cargo:rustc-check-cfg=cfg(e2fsck_binary_path)");
 }
