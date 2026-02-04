@@ -56,3 +56,7 @@ profile = { path = "../profile" }
 syslib = { path = "../syslib" }
 walkdir = "2.5.0"
 zstd = "0.13.1"
+
+[features]
+default = ["fsck"]
+fsck = []

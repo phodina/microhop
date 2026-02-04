@@ -50,6 +50,10 @@ profile = { path = "profile" }
 syslib = { path = "syslib" }
 uuid = "1.8.0"
 
+[features]
+default = ["fsck"]
+fsck = []
+
 [profile.release]
 strip = true
 opt-level = "z"
