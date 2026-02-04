@@ -15,6 +15,9 @@
     } // flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        e2fsprogsNoTest = pkgs.pkgsStatic.e2fsprogs.overrideAttrs (old: {
+          doCheck = false;
+        });
 
         # Internal (not exported) microhop package used by microgen.
         microhopPkg = pkgs.pkgsStatic.rustPlatform.buildRustPackage rec {
