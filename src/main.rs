@@ -152,7 +152,26 @@ fn main() -> Result<(), Error> {
                             if stderr.contains("Bad magic number") {
                                 log::info!("e2fsck reported bad magic; trying alternate superblocks for {}", device);
                                 match crate::fsck::restore_superblock_from_backup(device) {
-                                    Ok(true) => log::info!("restore_superblock_from_backup succeeded for {}", device),
+                                    Ok(true) => {
+                                        log::info!("restore_superblock_from_backup succeeded for {}", device);
+                                        // Re-run e2fsck after successful restore and return its code.
+                                        let mut rerun = Command::new("/bin/e2fsck");
+                                        if auto { rerun.arg("-p"); } else { rerun.arg("-n"); }
+                                        rerun.arg(device);
+                                        match rerun.output() {
+                                            Ok(rout) => {
+                                                let rout_stdout = String::from_utf8_lossy(&rout.stdout);
+                                                let rout_stderr = String::from_utf8_lossy(&rout.stderr);
+                                                if !rout_stdout.is_empty() { log::info!("re-e2fsck stdout: {}", rout_stdout); }
+                                                if !rout_stderr.is_empty() { log::info!("re-e2fsck stderr: {}", rout_stderr); }
+                                                if let Some(rc) = rout.status.code() { return Ok(rc); }
+                                                return Err("re-run e2fsck terminated by signal".to_string());
+                                            }
+                                            Err(e) => {
+                                                log::error!("failed to execute re-run e2fsck: {}", e);
+                                            }
+                                        }
+                                    }
                                     Ok(false) => log::info!("restore_superblock_from_backup found no valid backups for {}", device),
                                     Err(e) => log::error!("restore_superblock_from_backup error for {}: {}", device, e),
                                 }
@@ -312,16 +331,27 @@ fn main() -> Result<(), Error> {
             }
         }
 
-        if overlay_ok {
-            let upper_full = format!("{}/{}", overlay_mount, overlay_cfg.upper);
-            let work_full = format!("{}/{}", overlay_mount, overlay_cfg.workdir);
+        log::info!("DEBUG: overlay_ok at merge-decision: {}", overlay_ok);
+        let upper_full = format!("{}/{}", overlay_mount, overlay_cfg.upper);
+        let work_full = format!("{}/{}", overlay_mount, overlay_cfg.workdir);
 
+        if overlay_ok {
+            log::info!("DEBUG: preparing merged_dir {} (upper: {}, work: {})", merged_dir, upper_full, work_full);
             DirBuilder::new().recursive(true).mode(0o755).create(merged_dir)?;
 
-            syslib::fs::mount_overlayfs(lower_dir, &upper_full, &work_full, merged_dir)?;
-
-            final_root = merged_dir.to_string();
+            match syslib::fs::mount_overlayfs(lower_dir, &upper_full, &work_full, merged_dir) {
+                Ok(()) => {
+                    log::info!("DEBUG: overlayfs mounted at {}", merged_dir);
+                    final_root = merged_dir.to_string();
+                }
+                Err(e) => {
+                    log::error!("DEBUG: mount_overlayfs failed: {}", e);
+                    use_overlayfs = false;
+                    final_root = cfg.get_sysroot_path();
+                }
+            }
         } else {
+            log::info!("DEBUG: overlay_ok is false, falling back to sysroot");
             use_overlayfs = false;
             final_root = cfg.get_sysroot_path();
         }
@@ -329,6 +359,17 @@ fn main() -> Result<(), Error> {
 
     // Remount sysfs, switch root
     log::debug!("switching root");
+    // Debug: log what we intend to pivot to and current mounts for diagnosis
+    log::info!("DEBUG: final_root='{}', use_overlayfs={}", final_root, use_overlayfs);
+    if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+        for line in mounts.lines() {
+            if line.contains(&final_root) || line.contains("/overlay") || line.starts_with("/") {
+                log::info!("DEBUG: mount: {}", line);
+            }
+        }
+    } else {
+        log::info!("DEBUG: could not read /proc/mounts");
+    }
     for t in SYS_MPT {
         let tgt = format!("{}{}", final_root, t.dst);
         nix::mount::mount(Some(t.dst), tgt.as_str(), Some(t.fstype), MsFlags::MS_MOVE, Option::<&str>::None)?;
@@ -336,6 +377,31 @@ fn main() -> Result<(), Error> {
 
     // Pivot the system
     syslib::fs::pivot(&final_root, if use_overlayfs { "overlay" } else { root_fstype.as_str() })?;
+
+    // Post-pivot verification: ensure the root filesystem is the expected one.
+    if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+        // find root entry
+        for line in mounts.lines() {
+            if line.split_whitespace().nth(1).map(|s| s == "/").unwrap_or(false) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    let fstype_now = parts[2];
+                    let expected = if use_overlayfs { "overlay" } else { root_fstype.as_str() };
+                    if fstype_now != expected {
+                        log::warn!("Post-pivot root fstype '{}' != expected '{}', attempting a second MS_MOVE of {} -> /", fstype_now, expected, final_root);
+                        // Try to move the final_root mount onto /
+                        match nix::mount::mount(Some(final_root.as_str()), "/", Some(expected), nix::mount::MsFlags::MS_MOVE, Option::<&str>::None) {
+                            Ok(()) => log::info!("Second MS_MOVE succeeded: {} is now root", final_root),
+                            Err(e) => log::error!("Second MS_MOVE failed: {}", e),
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    } else {
+        log::warn!("Could not read /proc/mounts for post-pivot verification");
+    }
 
     // Start external init
     log::info!("Launching init at {}", cfg.get_init_path());
