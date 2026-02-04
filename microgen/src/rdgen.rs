@@ -18,6 +18,11 @@ const MICROHOP: &[u8] = include_bytes!(env!("MICROHOP_BINARY_PATH"));
 
 #[cfg(not(microhop_binary_path))]
 const MICROHOP: &[u8] = include_bytes!("microhop");
+#[cfg(e2fsck_binary_path)]
+const E2FSCK: &[u8] = include_bytes!(env!("E2FSCK_BINARY_PATH"));
+
+#[cfg(not(e2fsck_binary_path))]
+const E2FSCK: &[u8] = include_bytes!("e2fsck");
 const BLINKENLICHTEN: &str = "# Achtung Alles Lookenskepers!
 #
 # Das konfiguration ist nicht fuer gefingerpoken und
@@ -102,6 +107,12 @@ impl IrfsGen {
         let mut flags = fs::metadata(&mhp)?.permissions();
         flags.set_mode(0o755);
         fs::set_permissions(mhp, flags)?;
+
+        let e2p = self.dst.join("bin/e2fsck");
+        fs::write(&e2p, E2FSCK)?;
+        let mut eflags = fs::metadata(&e2p)?.permissions();
+        eflags.set_mode(0o755);
+        fs::set_permissions(e2p, eflags)?;
 
         // Symlink to /init
         let here = env::current_dir()?;
