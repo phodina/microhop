@@ -66,6 +66,22 @@
           nixos-rootfs = import ./nixos/nixos-rootfs.nix {
             inherit pkgs nixpkgs;
           };
+
+          # Produce a corrupted ext4 image (external overlay) from the flake
+          nixos-rootfs-img = pkgs.runCommand "test-rootfs-img" {
+            nativeBuildInputs = with pkgs; [ coreutils e2fsprogsNoTest ];
+          } ''
+            mkdir -p $out
+            TMP_EXT4="$out/test-rootfs.img"
+            ${pkgs.coreutils}/bin/truncate -s 64M "$TMP_EXT4"
+            ${e2fsprogsNoTest}/bin/mkfs.ext4 -F -L test-rootfs "$TMP_EXT4"
+            # Corrupt metadata
+            ${pkgs.coreutils}/bin/dd if=/dev/urandom of="$TMP_EXT4" bs=1024 count=2 seek=1 conv=notrunc
+            # Corrupt random blocks
+            ${pkgs.coreutils}/bin/dd if=/dev/urandom of="$TMP_EXT4" bs=4096 count=20 seek=100 conv=notrunc
+            # Corrupt inode tables
+            ${pkgs.coreutils}/bin/dd if=/dev/urandom of="$TMP_EXT4" bs=4096 count=5 seek=200 conv=notrunc
+          '';
         } else {};
       in
       {
@@ -136,12 +152,15 @@
             INITRD="${self.packages.${system}.initramfs-microgen}/initrd"
             SQUASHFS="${bootComponents.nixos-rootfs}/rootfs.squashfs"
 
-            OVERLAY_IMG=$(${pkgs.coreutils}/bin/mktemp -u /tmp/overlay-XXXXXX.img)
-            trap 'rm -f "$OVERLAY_IMG"' EXIT
-            
-            ${pkgs.coreutils}/bin/truncate -s 512M "$OVERLAY_IMG"
-            ${pkgs.e2fsprogs}/bin/mkfs.ext4 -F -L overlay-storage "$OVERLAY_IMG"
-            
+            # Use the corrupted ext4 image produced by the flake as the overlay
+            OVERLAY_IMG="${bootComponents.nixos-rootfs-img}/test-rootfs.img"
+
+            # Copy overlay image out of the Nix store to a writable temp file
+            TMP_OVERLAY=$(mktemp /tmp/test-rootfs.img.XXXX)
+            cp -f "$OVERLAY_IMG" "$TMP_OVERLAY"
+            chmod 644 "$TMP_OVERLAY"
+            trap 'rm -f "$TMP_OVERLAY"' EXIT
+
             echo "=========================================="
             echo "  Microhop Boot Flow"
             echo "=========================================="
@@ -151,29 +170,27 @@
             echo "Kernel:         $KERNEL"
             echo "Initrd:         $INITRD"
             echo "Rootfs:         $SQUASHFS"
-            echo "Overlay:        $OVERLAY_IMG"
+            echo "Overlay (store): $OVERLAY_IMG"
+            echo "Overlay (tmp):   $TMP_OVERLAY"
             echo ""
             echo "Boot flow: U-Boot -> Kernel -> Microhop initramfs -> NixOS musl rootfs"
             echo "=========================================="
             echo ""
+              ${pkgs.qemu}/bin/qemu-system-aarch64 \
+                -M virt \
+                -cpu cortex-a57 \
+                -m 1024M \
+                -smp 2 \
+                -bios "$UBOOT" \
+                -kernel "$KERNEL" \
+                -initrd "$INITRD" \
+                -drive file="$SQUASHFS",if=none,format=raw,readonly=on,id=hd0 \
+                -device virtio-blk-device,drive=hd0 \
+                -drive file="$TMP_OVERLAY",if=none,format=raw,id=hd1 \
+                -device virtio-blk-device,drive=hd1 \
+                -append "console=ttyAMA0 root=/dev/null" \
+                -nographic
 
-            ${pkgs.qemu}/bin/qemu-system-aarch64 \
-              -M virt \
-              -cpu cortex-a57 \
-              -m 1024M \
-              -smp 2 \
-              -bios "$UBOOT" \
-              -kernel "$KERNEL" \
-              -initrd "$INITRD" \
-              -drive file="$SQUASHFS",if=none,format=raw,readonly=on,id=hd0 \
-              -device virtio-blk-device,drive=hd0 \
-              -drive file="$OVERLAY_IMG",if=none,format=raw,id=hd1 \
-              -device virtio-blk-device,drive=hd1 \
-              -append "console=ttyAMA0 root=/dev/null" \
-              -nographic \
-              -no-reboot
-
-            rm -f "$OVERLAY_IMG"
           '';
         } else {});
 
