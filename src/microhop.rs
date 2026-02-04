@@ -80,22 +80,49 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>], cfg: &MhConfig) {
                     _ => crate::fsck::FsckMode::NoWrite,
                 };
 
-                match fsck::fsck_ext2(t.dev.as_ref(), fsck_mode) {
+                // Run embedded /bin/e2fsck directly instead of using in-process fsck
+                fn run_external_e2fsck(device: &str, auto: bool) -> Result<i32, String> {
+                    use std::process::Command;
+                    use std::path::Path;
+
+                    let e2fsck_path = "/bin/e2fsck";
+                    if !Path::new(e2fsck_path).exists() {
+                        return Err(format!("{} not found in initramfs", e2fsck_path));
+                    }
+
+                    let mut cmd = Command::new(e2fsck_path);
+                    if auto {
+                        cmd.arg("-p");
+                    } else {
+                        cmd.arg("-n");
+                    }
+                    cmd.arg(device);
+
+                    match cmd.status() {
+                        Ok(st) => match st.code() {
+                            Some(c) => Ok(c),
+                            None => Err("e2fsck terminated by signal".to_string()),
+                        },
+                        Err(e) => Err(format!("failed to execute /bin/e2fsck: {}", e)),
+                    }
+                }
+
+                match run_external_e2fsck(t.dev.as_ref(), fsck_mode == crate::fsck::FsckMode::AutoFix) {
                     Ok(code) => {
-                        log::info!("fsck returned exit code {} for device {}", code, t.dev.as_ref());
+                        log::info!("e2fsck returned exit code {} for device {}", code, t.dev.as_ref());
                         if code == 0 {
-                            log::info!("Retrying mount for {} after successful fsck", t.dst.as_ref());
+                            log::info!("Retrying mount for {} after successful e2fsck", t.dst.as_ref());
                             if let Err(err2) =
                                 syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags)
                             {
                                 log::error!("Retry mount failed {}: {}", t.dst.as_ref(), err2);
                             }
                         } else {
-                            log::error!("fsck reported non-zero status, not retrying mount");
+                            log::error!("e2fsck reported non-zero status, not retrying mount");
                         }
                     }
                     Err(e) => {
-                        log::error!("fsck failed to run for {}: {}", t.dev.as_ref(), e);
+                        log::error!("e2fsck failed to run for {}: {}", t.dev.as_ref(), e);
                     }
                 }
             }
