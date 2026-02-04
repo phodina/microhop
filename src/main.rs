@@ -1,7 +1,9 @@
 mod cmdline;
+mod fsck;
 mod kmodprobe;
 mod logger;
 mod microhop;
+mod overlayfs;
 
 use crate::microhop::{get_blk_devices, greet, mount_fs, SYS_MPT};
 use nix::{mount::MsFlags, unistd};
@@ -79,8 +81,10 @@ fn main() -> Result<(), Error> {
     }
     mount_fs(&blk_mpt);
 
-    let use_overlayfs = cfg.use_overlayfs();
-    let final_root = if let Some(overlay_cfg) = cfg.get_overlayfs() {
+    let mut use_overlayfs = cfg.use_overlayfs();
+    let mut final_root = cfg.get_sysroot_path();
+
+    if let Some(overlay_cfg) = cfg.get_overlayfs() {
         log::info!("Overlayfs enabled in configuration");
 
         if !syslib::fs::is_overlayfs_supported() {
@@ -89,46 +93,74 @@ fn main() -> Result<(), Error> {
             return Err(Error::new(std::io::ErrorKind::Unsupported, "Overlayfs not supported"));
         }
 
-        use crate::microhop::resolve_device_path;
-        let mut blkid = syslib::blk::BlkInfo::new();
-        blkid.probe_devices()?;
-
-        let overlay_dev_path = resolve_device_path(&overlay_cfg.device, &blkid).ok_or_else(|| {
-            Error::new(std::io::ErrorKind::NotFound, format!("Could not resolve overlayfs device: {}", overlay_cfg.device))
-        })?;
-
-        log::info!("Using overlayfs device: {} ({})", overlay_dev_path, overlay_cfg.device);
-
-        let lower_dir = temp_mpt;
-        let overlay_mount = "/overlay";
-        let merged_dir = "/overlay/merged";
-
-        DirBuilder::new().recursive(true).mode(0o755).create(overlay_mount)?;
-
-        syslib::fs::mount("ext4", overlay_dev_path, overlay_mount)?;
-        log::info!("Mounted overlayfs backing device at {}", overlay_mount);
-
-        let upper_full = format!("{}/{}", overlay_mount, overlay_cfg.upper);
-        let work_full = format!("{}/{}", overlay_mount, overlay_cfg.workdir);
-
-        DirBuilder::new().recursive(true).mode(0o755).create(merged_dir)?;
-
-        syslib::fs::mount_overlayfs(lower_dir, &upper_full, &work_full, merged_dir)?;
-
-        merged_dir
-    } else {
-        temp_mpt
-    };
+        match overlayfs::try_setup_overlay(&cfg, temp_mpt, overlay_cfg) {
+            Ok(Some(mounted_root)) => {
+                final_root = mounted_root;
+            }
+            Ok(None) => {
+                use_overlayfs = false;
+                final_root = cfg.get_sysroot_path();
+            }
+            Err(e) => return Err(e),
+        }
+    }
 
     // Remount sysfs, switch root
     log::debug!("switching root");
+    // Debug: log what we intend to pivot to and current mounts for diagnosis
+    log::info!("DEBUG: final_root='{}', use_overlayfs={}", final_root, use_overlayfs);
+    if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+        for line in mounts.lines() {
+            if line.contains(&final_root) || line.contains("/overlay") || line.starts_with("/") {
+                log::info!("DEBUG: mount: {}", line);
+            }
+        }
+    } else {
+        log::info!("DEBUG: could not read /proc/mounts");
+    }
     for t in SYS_MPT {
         let tgt = format!("{}{}", final_root, t.dst);
         nix::mount::mount(Some(t.dst), tgt.as_str(), Some(t.fstype), MsFlags::MS_MOVE, Option::<&str>::None)?;
     }
 
     // Pivot the system
-    syslib::fs::pivot(final_root, if use_overlayfs { "overlay" } else { root_fstype.as_str() })?;
+    syslib::fs::pivot(&final_root, if use_overlayfs { "overlay" } else { root_fstype.as_str() })?;
+
+    // Post-pivot verification: ensure the root filesystem is the expected one.
+    if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+        // find root entry
+        for line in mounts.lines() {
+            if line.split_whitespace().nth(1).map(|s| s == "/").unwrap_or(false) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    let fstype_now = parts[2];
+                    let expected = if use_overlayfs { "overlay" } else { root_fstype.as_str() };
+                    if fstype_now != expected {
+                        log::warn!(
+                            "Post-pivot root fstype '{}' != expected '{}', attempting a second MS_MOVE of {} -> /",
+                            fstype_now,
+                            expected,
+                            final_root
+                        );
+                        // Try to move the final_root mount onto /
+                        match nix::mount::mount(
+                            Some(final_root.as_str()),
+                            "/",
+                            Some(expected),
+                            nix::mount::MsFlags::MS_MOVE,
+                            Option::<&str>::None,
+                        ) {
+                            Ok(()) => log::info!("Second MS_MOVE succeeded: {} is now root", final_root),
+                            Err(e) => log::error!("Second MS_MOVE failed: {}", e),
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    } else {
+        log::warn!("Could not read /proc/mounts for post-pivot verification");
+    }
 
     // Start external init
     log::info!("Launching init at {}", cfg.get_init_path());
