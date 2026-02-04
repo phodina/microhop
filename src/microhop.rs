@@ -5,7 +5,7 @@ use std::process::Command;
 use syslib::blk::BlkInfo;
 use uuid::Uuid;
 
-static VERSION: &str = "0.1.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub struct SystemDir<T: AsRef<str>> {
     pub fstype: T,
