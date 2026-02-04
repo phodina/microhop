@@ -15,6 +15,9 @@
     } // flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        e2fsprogsNoTest = pkgs.pkgsStatic.e2fsprogs.overrideAttrs (old: {
+          doCheck = false;
+        });
 
         # Internal (not exported) microhop package used by microgen.
         microhopPkg = pkgs.pkgsStatic.rustPlatform.buildRustPackage rec {
@@ -104,7 +107,7 @@
               rustPlatform.bindgenHook
             ]) ++ [
               microhopPkg
-            ];
+            ] ++ [ e2fsprogsNoTest ];
 
             buildInputs = with pkgs.pkgsStatic; [
               util-linuxMinimal
@@ -114,9 +117,10 @@
 
             cargoBuildFlags = [ "-p" "microgen" ];
 
-            # Set environment variable to point to microhop binary for include_bytes!()
-            # The nativeBuildInputs ensures this is built first
+            # Set environment variable to point to microhop and e2fsck binaries for include_bytes!()
+            # The nativeBuildInputs ensures these are available at build time
             MICROHOP_BINARY_PATH = "${microhopPkg}/bin/microhop";
+            E2FSCK_BINARY_PATH = "${e2fsprogsNoTest}/bin/e2fsck";
 
             doCheck = false;
 
@@ -222,6 +226,8 @@
           shellHook = ''
             export LIBCLANG_PATH=${pkgs.libclang.lib}/lib
             export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=${pkgs.glibc.dev} -I${pkgs.util-linux.dev}/include"
+            export MICROHOP_BINARY_PATH=${microhopPkg}/bin/microhop
+            export E2FSCK_BINARY_PATH=${e2fsprogsNoTest}/bin/e2fsck
           '';
         };
       }
