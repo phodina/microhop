@@ -169,7 +169,7 @@
               -device virtio-blk-device,drive=hd0 \
               -drive file="$OVERLAY_IMG",if=none,format=raw,id=hd1 \
               -device virtio-blk-device,drive=hd1 \
-              -append "console=ttyAMA0" \
+              -append "console=ttyAMA0 root=/dev/null" \
               -nographic \
               -no-reboot
 
