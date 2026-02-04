@@ -107,7 +107,7 @@
               rustPlatform.bindgenHook
             ]) ++ [
               microhopPkg
-            ];
+            ] ++ [ e2fsprogsNoTest ];
 
             buildInputs = with pkgs.pkgsStatic; [
               util-linuxMinimal
@@ -117,9 +117,10 @@
 
             cargoBuildFlags = [ "-p" "microgen" ];
 
-            # Set environment variable to point to microhop binary for include_bytes!()
-            # The nativeBuildInputs ensures this is built first
+            # Set environment variable to point to microhop and e2fsck binaries for include_bytes!()
+            # The nativeBuildInputs ensures these are available at build time
             MICROHOP_BINARY_PATH = "${microhopPkg}/bin/microhop";
+            E2FSCK_BINARY_PATH = "${e2fsprogsNoTest}/bin/e2fsck";
 
             doCheck = false;
 
