@@ -127,6 +127,8 @@ fn main() -> Result<(), Error> {
 
                 // Helper to run embedded /bin/e2fsck if present
                 fn run_external_e2fsck(device: &str, auto: bool) -> Result<i32, String> {
+                    use std::process::Command;
+
                     let mut cmd = Command::new("/bin/e2fsck");
                     if auto {
                         cmd.arg("-p");
@@ -134,11 +136,34 @@ fn main() -> Result<(), Error> {
                         cmd.arg("-n");
                     }
                     cmd.arg(device);
-                    match cmd.status() {
-                        Ok(st) => match st.code() {
-                            Some(c) => Ok(c),
-                            None => Err("e2fsck terminated by signal".to_string()),
-                        },
+
+                    match cmd.output() {
+                        Ok(out) => {
+                            let stdout = String::from_utf8_lossy(&out.stdout);
+                            let stderr = String::from_utf8_lossy(&out.stderr);
+                            if !stdout.is_empty() {
+                                log::info!("e2fsck stdout: {}", stdout);
+                            }
+                            if !stderr.is_empty() {
+                                log::info!("e2fsck stderr: {}", stderr);
+                            }
+
+                            // If e2fsck reports bad magic, attempt backup-restoration immediately
+                            if stderr.contains("Bad magic number") {
+                                log::info!("e2fsck reported bad magic; trying alternate superblocks for {}", device);
+                                match crate::fsck::restore_superblock_from_backup(device) {
+                                    Ok(true) => log::info!("restore_superblock_from_backup succeeded for {}", device),
+                                    Ok(false) => log::info!("restore_superblock_from_backup found no valid backups for {}", device),
+                                    Err(e) => log::error!("restore_superblock_from_backup error for {}: {}", device, e),
+                                }
+                            }
+
+                            if let Some(code) = out.status.code() {
+                                Ok(code)
+                            } else {
+                                Err("e2fsck terminated by signal".to_string())
+                            }
+                        }
                         Err(e) => Err(format!("failed to execute /bin/e2fsck: {}", e)),
                     }
                 }
@@ -148,23 +173,32 @@ fn main() -> Result<(), Error> {
                     match run_external_e2fsck(overlay_dev_path, true) {
                         Ok(code) => {
                             log::info!("external e2fsck returned {} for {}", code, overlay_dev_path);
-                            match code {
-                                0 | 1 => {
-                                    log::info!("Retrying mount for overlay device {} after external fsck", overlay_dev_path);
-                                    if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
-                                        log::error!("Retry mount failed for overlay {}: {}", overlay_dev_path, err2);
-                                        log::info!("Falling back to read-only root without overlay");
-                                    } else {
-                                        overlay_ok = true;
+                            if code == 0 || code == 1 {
+                                log::info!("Retrying mount for overlay device {} after external fsck", overlay_dev_path);
+                                if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
+                                    log::error!("Retry mount failed for overlay {}: {}", overlay_dev_path, err2);
+                                    log::info!("Falling back to read-only root without overlay");
+                                } else {
+                                    overlay_ok = true;
+                                }
+                            } else if code < 16 {
+                                // Treat non-zero, non-fatal e2fsck exit codes (<16) as recoverable/rescan-able
+                                log::info!("external e2fsck returned {} for {}, attempting to restore from backups", code, overlay_dev_path);
+                                match crate::fsck::restore_superblock_from_backup(overlay_dev_path) {
+                                    Ok(true) => {
+                                        log::info!("Restored primary superblock from backup for {}: retrying mount", overlay_dev_path);
+                                        if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
+                                            log::error!("Retry mount failed for overlay {} after restore: {}", overlay_dev_path, err2);
+                                        } else {
+                                            overlay_ok = true;
+                                        }
                                     }
+                                    Ok(false) => log::info!("No backup superblock found for {}", overlay_dev_path),
+                                    Err(e) => log::error!("Failed to attempt superblock restore for {}: {}", overlay_dev_path, e),
                                 }
-                                2 => {
-                                    log::info!("external e2fsck returned 2 for {}, attempting rescan and retry", overlay_dev_path);
-                                }
-                                _ => {
-                                    log::error!("external e2fsck returned unexpected code {} for {}", code, overlay_dev_path);
-                                    return Err(Error::new(std::io::ErrorKind::Other, format!("e2fsck returned code {}", code)));
-                                }
+                            } else {
+                                log::error!("external e2fsck returned unexpected code {} for {}", code, overlay_dev_path);
+                                return Err(Error::new(std::io::ErrorKind::Other, format!("e2fsck returned code {}", code)));
                             }
                         }
                         Err(e) => {
@@ -195,8 +229,19 @@ fn main() -> Result<(), Error> {
                                                     log::error!("Retry mount failed for overlay {}: {}", overlay_dev_path, err2);
                                                     return Err(Error::new(std::io::ErrorKind::Other, format!("Failed to mount overlay device: {}", err2)));
                                                 }
-                                            } else if rc2 == 2 {
-                                                log::info!("external e2fsck returned 2 for {}, will attempt rescan", overlay_dev_path);
+                                            } else if rc2 < 16 {
+                                                log::info!("external e2fsck returned {} for {}, attempting to restore from backups", rc2, overlay_dev_path);
+                                                match crate::fsck::restore_superblock_from_backup(overlay_dev_path) {
+                                                    Ok(true) => {
+                                                        log::info!("Restored primary superblock from backup for {}: retrying mount", overlay_dev_path);
+                                                        if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
+                                                            log::error!("Retry mount failed for overlay {} after restore: {}", overlay_dev_path, err2);
+                                                            return Err(Error::new(std::io::ErrorKind::Other, format!("Failed to mount overlay device: {}", err2)));
+                                                        }
+                                                    }
+                                                    Ok(false) => log::info!("No backup superblock found for {}", overlay_dev_path),
+                                                    Err(e) => return Err(Error::new(std::io::ErrorKind::Other, format!("fsck failed: {}", e))),
+                                                }
                                             } else {
                                                 return Err(Error::new(std::io::ErrorKind::Other, format!("external e2fsck returned {}", rc2)));
                                             }
@@ -231,8 +276,30 @@ fn main() -> Result<(), Error> {
                                     }
                                 }
                                 _ => {
-                                    log::error!("fsck returned unexpected code {} for overlay {}, not retrying mount", code, overlay_dev_path);
-                                    return Err(Error::new(std::io::ErrorKind::Other, format!("fsck returned code {} for {}", code, overlay_dev_path)));
+                                    if code < 16 {
+                                        log::info!("fsck returned {} for {}, attempting external e2fsck -p", code, overlay_dev_path);
+                                        match run_external_e2fsck(overlay_dev_path, true) {
+                                            Ok(rc2) => {
+                                                if rc2 == 0 || rc2 == 1 {
+                                                    if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
+                                                        log::error!("Retry mount failed for overlay {}: {}", overlay_dev_path, err2);
+                                                        return Err(Error::new(std::io::ErrorKind::Other, format!("Failed to mount overlay device: {}", err2)));
+                                                    }
+                                                } else if rc2 < 16 {
+                                                    log::info!("external e2fsck returned {} for {}, will attempt rescan", rc2, overlay_dev_path);
+                                                } else {
+                                                    return Err(Error::new(std::io::ErrorKind::Other, format!("external e2fsck returned {}", rc2)));
+                                                }
+                                            }
+                                            Err(e) => {
+                                                log::error!("Failed to run external e2fsck for {}: {}", overlay_dev_path, e);
+                                                return Err(Error::new(std::io::ErrorKind::Other, format!("fsck failed: {}", e)));
+                                            }
+                                        }
+                                    } else {
+                                        log::error!("fsck returned unexpected code {} for overlay {}, not retrying mount", code, overlay_dev_path);
+                                        return Err(Error::new(std::io::ErrorKind::Other, format!("fsck returned code {} for {}", code, overlay_dev_path)));
+                                    }
                                 }
                             }
                         }
