@@ -72,6 +72,9 @@ To run the demo shown in the captured [asciinema](https://asciinema.org/) do the
 nix run .#boot-overlayfs-musl
 ```
 
+**Note:** Flake-based derivations and Cachix substitutes are available for faster,
+reproducible builds; see `flake.nix` and the `nixos/` examples.
+
 To list available nix derivations run:
 ```
 nix flake show
@@ -146,6 +149,9 @@ firmware:
 #   - root       # Ignore root= from bootloader, use disks config instead
 ```
 
+To validate the config use `microgen validate` to sanity-check your `microhop.conf` before generating an
+initramfs.
+
 Resulting configuration will just contain more modules (their dependencies). The rest will be passed through.
 
 ### Generating initramfs
@@ -171,6 +177,9 @@ To achieve this, do the following:
    ```
 
    This command above is analysing your root filesystem at `/mnt`, will use `microhop.conf` as a profile and will write the output CPIO archive to the path, specified by `--file` option.
+
+   `microgen` supports embedding `e2fsck` binary to recover filesystem from errors and to include additional
+firmware files or embedded binaries
 
 3. Un-mount your image:
 
