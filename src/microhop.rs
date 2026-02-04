@@ -90,6 +90,29 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) {
 
         if let Err(err) = syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags) {
             log::error!("Error mounting {}: {}", t.dst.as_ref(), err);
+
+            // Attempt a conservative filesystem check using the embedded fsck wrapper
+            let fstype = t.fstype.as_ref();
+            if fstype.starts_with("ext") {
+                match run_external_e2fsck(t.dev.as_ref()) {
+                    Ok(code) => {
+                        log::info!("e2fsck returned exit code {} for device {}", code, t.dev.as_ref());
+                        if code == 0 {
+                            log::info!("Retrying mount for {} after successful e2fsck", t.dst.as_ref());
+                            if let Err(err2) =
+                                syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags)
+                            {
+                                log::error!("Retry mount failed {}: {}", t.dst.as_ref(), err2);
+                            }
+                        } else {
+                            log::error!("e2fsck reported non-zero status, not retrying mount");
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("e2fsck failed to run for {}: {}", t.dev.as_ref(), e);
+                    }
+                }
+            }
         };
     }
 }
