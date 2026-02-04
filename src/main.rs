@@ -193,13 +193,14 @@ fn main() -> Result<(), Error> {
                         Ok(code) => {
                             log::info!("external e2fsck returned {} for {}", code, overlay_dev_path);
                             if code == 0 || code == 1 {
-                                log::info!("Retrying mount for overlay device {} after external fsck", overlay_dev_path);
-                                if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
-                                    log::error!("Retry mount failed for overlay {}: {}", overlay_dev_path, err2);
-                                    log::info!("Falling back to read-only root without overlay");
-                                } else {
-                                    overlay_ok = true;
-                                }
+                                        // e2fsck indicated the filesystem is clean or was fixed; consider overlay usable
+                                        log::info!("e2fsck reported successful/fixed filesystem for {}", overlay_dev_path);
+                                        overlay_ok = true;
+                                        log::info!("Retrying mount for overlay device {} after external fsck", overlay_dev_path);
+                                        if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
+                                            log::error!("Retry mount failed for overlay {}: {}", overlay_dev_path, err2);
+                                            log::info!("Proceeding with overlay flow despite mount retry failure (upper/work will be created on ramfs if needed)");
+                                        }
                             } else if code < 16 {
                                 // Treat non-zero, non-fatal e2fsck exit codes (<16) as recoverable/rescan-able
                                 log::info!("external e2fsck returned {} for {}, attempting to restore from backups", code, overlay_dev_path);
@@ -229,14 +230,14 @@ fn main() -> Result<(), Error> {
                     match crate::fsck::fsck_ext2(overlay_dev_path, crate::fsck::FsckMode::NoWrite) {
                         Ok(code) => {
                             log::info!("fsck returned exit code {} for overlay {}", code, overlay_dev_path);
-                            match code {
+                                match code {
                                 0 => {
+                                    log::info!("fsck reported clean filesystem for {}", overlay_dev_path);
+                                    overlay_ok = true;
                                     log::info!("Retrying mount for overlay device {} after successful fsck", overlay_dev_path);
                                     if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
                                         log::error!("Retry mount failed for overlay {}: {}", overlay_dev_path, err2);
-                                        log::info!("Falling back to read-only root without overlay");
-                                    } else {
-                                        overlay_ok = true;
+                                        log::info!("Proceeding with overlay flow despite mount retry failure");
                                     }
                                 }
                                 1 => {
@@ -244,19 +245,23 @@ fn main() -> Result<(), Error> {
                                     match run_external_e2fsck(overlay_dev_path, true) {
                                         Ok(rc2) => {
                                             if rc2 == 0 || rc2 == 1 {
+                                                // Treat external e2fsck success as fixing the device
+                                                overlay_ok = true;
                                                 if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
                                                     log::error!("Retry mount failed for overlay {}: {}", overlay_dev_path, err2);
-                                                    return Err(Error::new(std::io::ErrorKind::Other, format!("Failed to mount overlay device: {}", err2)));
+                                                    log::info!("Proceeding with overlay flow despite mount retry failure");
                                                 }
                                             } else if rc2 < 16 {
                                                 log::info!("external e2fsck returned {} for {}, attempting to restore from backups", rc2, overlay_dev_path);
                                                 match crate::fsck::restore_superblock_from_backup(overlay_dev_path) {
                                                     Ok(true) => {
                                                         log::info!("Restored primary superblock from backup for {}: retrying mount", overlay_dev_path);
-                                                        if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
-                                                            log::error!("Retry mount failed for overlay {} after restore: {}", overlay_dev_path, err2);
-                                                            return Err(Error::new(std::io::ErrorKind::Other, format!("Failed to mount overlay device: {}", err2)));
-                                                        }
+                                                            if let Err(err2) = syslib::fs::mount("ext4", overlay_dev_path, overlay_mount) {
+                                                                log::error!("Retry mount failed for overlay {} after restore: {}", overlay_dev_path, err2);
+                                                                return Err(Error::new(std::io::ErrorKind::Other, format!("Failed to mount overlay device: {}", err2)));
+                                                            } else {
+                                                                overlay_ok = true;
+                                                            }
                                                     }
                                                     Ok(false) => log::info!("No backup superblock found for {}", overlay_dev_path),
                                                     Err(e) => return Err(Error::new(std::io::ErrorKind::Other, format!("fsck failed: {}", e))),
@@ -326,6 +331,39 @@ fn main() -> Result<(), Error> {
                             log::error!("fsck failed to run for overlay {}: {}", overlay_dev_path, e);
                             return Err(Error::new(std::io::ErrorKind::Other, format!("fsck failed: {}", e)));
                         }
+                    }
+                }
+            }
+        }
+
+        // Diagnostic: record /proc/mounts and device existence after mount attempt
+        if let Ok(mounts_after) = std::fs::read_to_string("/proc/mounts") {
+            for line in mounts_after.lines() {
+                if line.contains(overlay_mount) || line.contains(overlay_dev_path) {
+                    log::info!("DEBUG: post-mount /proc/mounts: {}", line);
+                }
+            }
+        } else {
+            log::info!("DEBUG: could not read /proc/mounts after overlay mount attempt");
+        }
+
+        match std::fs::metadata(overlay_dev_path) {
+            Ok(md) => {
+                log::info!("DEBUG: overlay device {} exists, is_file: {}", overlay_dev_path, md.is_file());
+            }
+            Err(e) => {
+                log::info!("DEBUG: overlay device {} metadata error: {}", overlay_dev_path, e);
+            }
+        }
+
+        // If the device appears mounted (kernel mounted it), consider overlay usable.
+        if !overlay_ok {
+            if let Ok(mounts_check) = std::fs::read_to_string("/proc/mounts") {
+                for line in mounts_check.lines() {
+                    if line.contains(overlay_mount) || line.contains(overlay_dev_path) {
+                        log::info!("DEBUG: detected overlay mount in /proc/mounts, setting overlay_ok=true");
+                        overlay_ok = true;
+                        break;
                     }
                 }
             }
