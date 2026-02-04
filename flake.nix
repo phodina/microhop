@@ -148,7 +148,7 @@
             microhopConfig = bootComponents.microhopConfig;
           };
 
-          boot-overlayfs-musl = pkgs.writeScriptBin "boot-qemu-overlayfs-musl" ''
+          nixos-example = pkgs.writeScriptBin "boot-qemu-overlayfs-musl" ''
             #!${pkgs.bash}/bin/bash
 
             UBOOT="${bootComponents.u-boot}/u-boot.bin"
@@ -199,13 +199,13 @@
         } else {});
 
         apps = if system == "aarch64-linux" then {
-          boot-overlayfs-musl = {
+          nixos-example = {
             type = "app";
-            program = "${self.packages.${system}.boot-overlayfs-musl}/bin/boot-qemu-overlayfs-musl";
+            program = "${self.packages.${system}.nixos-example}/bin/boot-qemu-overlayfs-musl";
           };
           default = {
             type = "app";
-            program = "${self.packages.${system}.boot-overlayfs-musl}/bin/boot-qemu-overlayfs-musl";
+            program = "${self.packages.${system}.nixos-example}/bin/boot-qemu-overlayfs-musl";
           };
         } else {};
 
