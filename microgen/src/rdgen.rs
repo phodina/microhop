@@ -11,13 +11,13 @@ use std::{
 
 use crate::rdpack;
 
-// Use MICROHOP_BINARY_PATH environment variable if set (for Nix builds),
-// otherwise default to "microhop" in the source directory (for Make builds)
-#[cfg(microhop_binary_path)]
-const MICROHOP: &[u8] = include_bytes!(env!("MICROHOP_BINARY_PATH"));
+// Embed the microhop binary via compile-time env var
+const MICROHOP: &[u8] = include_bytes!(env!("MICROHOP_BINARY_PATH", "microhop"));
 
-#[cfg(not(microhop_binary_path))]
-const MICROHOP: &[u8] = include_bytes!("microhop");
+// Embed e2fsck when fsck feature is enabled
+#[cfg(feature = "fsck")]
+const E2FSCK: &[u8] = include_bytes!(env!("E2FSCK_BINARY_PATH", "e2fsck"));
+
 const BLINKENLICHTEN: &str = "# Achtung Alles Lookenskepers!
 #
 # Das konfiguration ist nicht fuer gefingerpoken und
@@ -102,6 +102,15 @@ impl IrfsGen {
         let mut flags = fs::metadata(&mhp)?.permissions();
         flags.set_mode(0o755);
         fs::set_permissions(mhp, flags)?;
+
+        #[cfg(feature = "fsck")]
+        {
+            let e2p = self.dst.join("bin/e2fsck");
+            fs::write(&e2p, E2FSCK)?;
+            let mut eflags = fs::metadata(&e2p)?.permissions();
+            eflags.set_mode(0o755);
+            fs::set_permissions(e2p, eflags)?;
+        }
 
         // Symlink to /init
         let here = env::current_dir()?;
