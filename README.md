@@ -84,23 +84,27 @@ To speed up the build there's a [Cachix](https://app.cachix.org/cache/mobile-nix
 Configuration is also a profile. This is the basic start:
 
 ```yaml
-# The list of kernel modules
+# What kernel modules to load
+# NOTE: currently one needs to load
+#       far dependencies first, and then
+#       the final module, otherwise it won't do. :)
 modules:
   - virtio_blk
-  - xfs
+  - jbd2
+  - crc16
+  - mbcache
+  - ext4
 
-# Devices
+# Devices mounting
+# NOTE: If kernel command line includes root= parameter, it will override
+#       the disk configuration below. This allows bootloader to specify rootfs.
 disks:
-  # Directly access device:
-  # /dev/vda3: xfs,/,rw
-  #
-  # Access device via label:
-  # ROOT: xfs,/,rw
-  #
-  # Access device via UUID:
-  24e1daee-e09b-4fd5-97f3-dde8aba6ad8a: xfs,/,rw
+# Preferred methods (most reliable):
+# By UUID (recommended):
+  uuid=24e1daee-e09b-4fd5-97f3-dde8aba6ad8a: ext4,/,rw
 
-# Optionally, define a custom init app
+# Optionally, define another init app, if it is not /sbin/init
+# This app will be launched with PID 1 and should never quit.
 init: /usr/bin/bash
 
 # Optionally, define a temporary sysroot.
@@ -113,6 +117,33 @@ sysroot: /sysroot
 # - info (default)
 # - quiet (errors only)
 log: debug
+
+# Optionally, enable overlayfs support
+# This creates a writable layer on top of the read-only root filesystem.
+# Useful for systems with read-only filesystems like squashfs or when booting from
+# read-only media. Requires kernel CONFIG_OVERLAY_FS support.
+#
+# overlayfs:
+#   device: uuid=12345678-1234-1234-1234-123456789abc  # or label=overlay-storage or /dev/vdb1
+#   upper: upper      # Path on the mounted device for the upper layer
+#   workdir: work     # Path on the mounted device for overlayfs work directory
+
+# Firmware configuration
+# Defines the base path for firmware files in the initramfs
+# Default: /lib/firmware
+firmware:
+  base: /lib/firmware
+
+# Optionally, mask (ignore) specific kernel cmdline parameters
+# This is useful when the bootloader passes conflicting parameters that you want to override
+# with values from this config file instead.
+#
+# Common use case: Android bootloaders often pass a hardcoded root=PARTUUID=... that doesn't
+# match the actual filesystem. By masking "root", microhop will ignore the bootloader's
+# parameter and use the disk configuration above instead.
+#
+# mask_cmdline:
+#   - root       # Ignore root= from bootloader, use disks config instead
 ```
 
 Resulting configuration will just contain more modules (their dependencies). The rest will be passed through.
