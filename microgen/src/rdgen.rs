@@ -333,6 +333,14 @@ impl IrfsGen {
             }
         }
 
+        // Preserve overlayfs configuration if present
+        if let Some(overlay) = self.cfg.get_overlayfs() {
+            writeln!(fp, "\noverlayfs:")?;
+            writeln!(fp, "  device: {}", overlay.device)?;
+            writeln!(fp, "  upper: {}", overlay.upper)?;
+            writeln!(fp, "  workdir: {}", overlay.workdir)?;
+        }
+
         if let Some(firmware) = self.cfg.get_firmware() {
             writeln!(fp, "\nfirmware:")?;
             writeln!(fp, "  base: {}", firmware.base)?;
