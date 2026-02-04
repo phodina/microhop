@@ -16,6 +16,47 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
+        # Internal (not exported) microhop package used by microgen.
+        microhopPkg = pkgs.pkgsStatic.rustPlatform.buildRustPackage rec {
+          pname = "microhop";
+          version = "0.1.0";
+
+          src = ./.;
+
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            outputHashes = {
+              "kmoddep-0.1.5" = "sha256-8Q2cL2YYpItJ/aIwiqhT3iAsMwzBemAem0deKHRxXDs=";
+            };
+          };
+
+          nativeBuildInputs = with pkgs.pkgsStatic; [
+            pkg-config
+            rustPlatform.bindgenHook
+          ];
+
+          buildInputs = with pkgs.pkgsStatic; [
+            util-linuxMinimal
+            e2fsprogsNoTest.dev
+          ];
+
+          buildType = "release";
+
+          cargoBuildFlags = [ "-p" "microhop" ];
+
+          doCheck = false;
+
+          stripAllList = [ "bin" ];
+
+          meta = with pkgs.lib; {
+            description = "Minimal initramfs /init binary";
+            homepage = "https://github.com/tinythings/microhop";
+            license = licenses.asl20;
+            maintainers = [];
+            platforms = [ "aarch64-linux" "x86_64-linux" ];
+          };
+        };
+
         bootComponents = if system == "aarch64-linux" then {
           kernel = import ./nixos/kernel.nix { inherit pkgs; };
           u-boot = import ./nixos/u-boot.nix { inherit pkgs; };
@@ -42,9 +83,11 @@
               };
             };
 
-            nativeBuildInputs = with pkgs.pkgsStatic; [
+            nativeBuildInputs = (with pkgs.pkgsStatic; [
               pkg-config
               rustPlatform.bindgenHook
+            ]) ++ [
+              microhopPkg
             ];
 
             buildInputs = with pkgs.pkgsStatic; [
@@ -53,58 +96,13 @@
 
             buildType = "release";
 
-            cargoBuildFlags = [ "-p" "microhop" ];
+            cargoBuildFlags = [ "-p" "microgen" ];
+
+            # Set environment variable to point to microhop binary for include_bytes!()
+            # The nativeBuildInputs ensures this is built first
+            MICROHOP_BINARY_PATH = "${microhopPkg}/bin/microhop";
 
             doCheck = false;
-
-            stripAllList = [ "bin" ];
-
-            meta = with pkgs.lib; {
-              description = "Minimal initramfs /init binary";
-              homepage = "https://github.com/tinythings/microhop";
-              license = licenses.asl20;
-              maintainers = [];
-              platforms = [ "aarch64-linux" "x86_64-linux" ];
-            };
-          };
-
-          microgen =
-            let
-              microhopPkg = self.packages.${system}.microhop;
-            in
-            pkgs.pkgsStatic.rustPlatform.buildRustPackage rec {
-              pname = "microgen";
-              version = "0.1.0";
-
-              src = ./.;
-
-              cargoLock = {
-                lockFile = ./Cargo.lock;
-                outputHashes = {
-                  "kmoddep-0.1.5" = "sha256-8Q2cL2YYpItJ/aIwiqhT3iAsMwzBemAem0deKHRxXDs=";
-                };
-              };
-
-              nativeBuildInputs = (with pkgs.pkgsStatic; [
-                pkg-config
-                rustPlatform.bindgenHook
-              ]) ++ [
-                microhopPkg
-              ];
-
-              buildInputs = with pkgs.pkgsStatic; [
-                util-linuxMinimal
-              ];
-
-              buildType = "release";
-
-              cargoBuildFlags = [ "-p" "microgen" ];
-
-              # Set environment variable to point to microhop binary for include_bytes!()
-              # The nativeBuildInputs ensures this is built first
-              MICROHOP_BINARY_PATH = "${microhopPkg}/bin/microhop";
-
-              doCheck = false;
 
             meta = with pkgs.lib; {
               description = "Initramfs generator tool for microhop";
@@ -115,7 +113,7 @@
             };
           };
 
-          default = self.packages.${system}.microgen;
+          default = self.packages.${system}.microhop;
         } // (if system == "aarch64-linux" then {
 
           kernel = bootComponents.kernel;
@@ -125,8 +123,8 @@
           initramfs-microgen = import ./nixos/initramfs-microgen.nix {
             inherit pkgs;
             kernel = bootComponents.kernel;
-            microgen = self.packages.${system}.microgen;
-            microhop = self.packages.${system}.microhop;
+            microgen = self.packages.${system}.microhop;
+            microhop = microhopPkg;
             microhopConfig = bootComponents.microhopConfig;
           };
 
