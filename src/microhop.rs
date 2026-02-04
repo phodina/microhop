@@ -1,5 +1,7 @@
 use profile::cfg::MhConfig;
 use std::io::Error;
+use std::path::Path;
+use std::process::Command;
 use syslib::blk::BlkInfo;
 use uuid::Uuid;
 
@@ -52,6 +54,26 @@ pub fn greet(cfg: &MhConfig) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+/// Run embedded /bin/e2fsck directly instead of using in-process fsck
+fn run_external_e2fsck(device: &str) -> Result<i32, String> {
+    let e2fsck_path = "/bin/e2fsck";
+    if !Path::new(e2fsck_path).exists() {
+        return Err(format!("{} not found in initramfs", e2fsck_path));
+    }
+
+    let mut cmd = Command::new(e2fsck_path);
+    cmd.arg("-p");
+    cmd.arg(device);
+
+    match cmd.status() {
+        Ok(st) => match st.code() {
+            Some(c) => Ok(c),
+            None => Err("e2fsck terminated by signal".to_string()),
+        },
+        Err(e) => Err(format!("failed to execute /bin/e2fsck: {}", e)),
+    }
 }
 
 /// Mount configured filesystems in a batch
