@@ -1,9 +1,23 @@
 use std::fs::File;
 use std::io::Read;
+use std::process::Command;
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(microhop_binary_path)");
     println!("cargo:rustc-check-cfg=cfg(e2fsck_binary_path)");
+
+    // Capture git commit hash at build time
+    let git_commit = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|output| if output.status.success() { String::from_utf8(output.stdout).ok() } else { None })
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    println!("cargo:rustc-env=GIT_COMMIT_HASH={}", git_commit);
+    println!("cargo:rerun-if-changed=../.git/HEAD");
+    println!("cargo:rerun-if-changed=../.git/refs");
 
     if let Ok(binary_path) = std::env::var("MICROHOP_BINARY_PATH") {
         let path = std::path::Path::new(&binary_path);
@@ -78,4 +92,6 @@ fn main() {
             println!("cargo:warning=Feature 'fsck' enabled but E2FSCK_BINARY_PATH not set; build will try local 'e2fsck'");
         }
     }
+
+    println!("cargo:rerun-if-changed=build.rs");
 }
