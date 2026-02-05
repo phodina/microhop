@@ -47,6 +47,13 @@ pub fn greet(cfg: &MhConfig) -> Result<(), Error> {
         log::warn!("Could not read /proc/cmdline");
     }
 
+    let mask = cfg.get_mask_cmdline();
+    if !mask.is_empty() {
+        log::debug!("Masking kernel cmdline parameters: {:?}", mask);
+    } else {
+        log::debug!("No cmdline parameters to mask");
+    }
+
     for dsk in cfg.get_disks()? {
         log::debug!(
             "Disk device: {}, fs type: {}, mountpoint: {:?}, mode: {}",
@@ -238,13 +245,6 @@ pub fn get_blk_devices(cfg: &MhConfig) -> Result<(String, Vec<SystemDir<String>>
     let mut blk_mpt: Vec<SystemDir<String>> = Vec::new();
 
     let mask = cfg.get_mask_cmdline();
-
-    if !mask.is_empty() {
-        log::info!("Masking kernel cmdline parameters: {:?}", mask);
-    } else {
-        log::debug!("No cmdline parameters to mask");
-    }
-
     let cmdline = crate::cmdline::CmdLine::new_with_mask(&mask).unwrap_or_default();
 
     if let Some(root_device) = cmdline.get_root_device() {
