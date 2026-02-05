@@ -15,7 +15,16 @@ static VERSION: &str = env!("CARGO_PKG_VERSION");
 static APPNAME: &str = "microgen";
 
 // Git commit hash embedded at build time
-const GIT_COMMIT_HASH: &str = env!("GIT_COMMIT_HASH");
+const GIT_COMMIT_HASH: &str = match option_env!("GIT_COMMIT_HASH") {
+    Some(hash) => hash,
+    None => "unknown",
+};
+
+// Enabled features embedded at build time
+const ENABLED_FEATURES: &str = match option_env!("ENABLED_FEATURES") {
+    Some(features) => features,
+    None => "fsck",
+};
 
 fn run_info(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let rfs = params.get_one::<String>("list").map(|v| v.as_str());
@@ -333,7 +342,7 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
             )?;
         }
     } else {
-        clidef::clidef(VERSION, APPNAME, GIT_COMMIT_HASH).print_help().unwrap();
+        clidef::clidef(VERSION, APPNAME, GIT_COMMIT_HASH, ENABLED_FEATURES).print_help().unwrap();
     }
 
     Ok(())
@@ -341,7 +350,7 @@ fn run_new(params: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
 #[allow(clippy::unit_arg)]
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut cli = clidef::clidef(VERSION, APPNAME, GIT_COMMIT_HASH);
+    let mut cli = clidef::clidef(VERSION, APPNAME, GIT_COMMIT_HASH, ENABLED_FEATURES);
     let params = cli.to_owned().get_matches();
     if params.get_flag("version") {
         println!("Version: {} (commit: {})", VERSION, GIT_COMMIT_HASH);
