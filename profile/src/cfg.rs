@@ -57,9 +57,17 @@ pub struct FirmwareConfig {
     pub base: String,
 }
 
+/// Metadata about the configuration generation
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigMetadata {
+    pub git_commit: String,
+    pub generated_at: String,
+}
+
 /// Main configuration struct
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct MhConfig {
+    metadata: Option<ConfigMetadata>,
     modules: Vec<String>,
     disks: IndexMap<String, String>,
     init: Option<String>,
