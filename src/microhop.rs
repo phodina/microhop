@@ -1,5 +1,6 @@
 use profile::cfg::MhConfig;
 use std::io::Error;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use syslib::blk::BlkInfo;
@@ -310,4 +311,94 @@ pub fn get_blk_devices(cfg: &MhConfig) -> Result<(String, Vec<SystemDir<String>>
     blk_mpt.sort_by(|ela, elb| ela.dev.cmp(&elb.dev));
 
     Ok((root_fstype, blk_mpt))
+}
+
+/// Verify that a symlink target exists and is executable
+fn verify_symlink_target(symlink_path: &str, target_path: &Path, root_mpt: &str) -> Result<(), Error> {
+    if target_path.is_absolute() {
+        // For absolute symlinks, check if target exists relative to the sysroot
+        let target_in_sysroot = format!("{}{}", root_mpt, target_path.display());
+        let target_sysroot_path = Path::new(&target_in_sysroot);
+
+        if target_sysroot_path.exists() {
+            log::info!("Init symlink target verified at {}", target_in_sysroot);
+            if let Ok(target_meta) = std::fs::metadata(&target_in_sysroot) {
+                let perms = target_meta.permissions();
+                let mode = perms.mode();
+                if mode & 0o111 == 0 {
+                    log::error!("Init symlink target exists but is not executable: {}", target_in_sysroot);
+                    log::error!("Permissions: {:o}", mode);
+                    return Err(Error::new(std::io::ErrorKind::PermissionDenied, "Init symlink target is not executable"));
+                }
+            }
+            log::info!("Init binary verified at {} before pivot (absolute symlink)", symlink_path);
+        } else {
+            log::error!("Init absolute symlink target not found: {}", target_in_sysroot);
+            log::error!("Symlink: {} -> {}", symlink_path, target_path.display());
+            return Err(Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Init symlink target not found: {}", target_in_sysroot),
+            ));
+        }
+    } else {
+        // Relative symlink - check normally
+        let symlink_path_obj = Path::new(symlink_path);
+        if !symlink_path_obj.exists() {
+            log::warn!("Init symlink target does not exist yet, but will check after pivot");
+        } else if let Ok(target_meta) = std::fs::metadata(symlink_path) {
+            let perms = target_meta.permissions();
+            let mode = perms.mode();
+            if mode & 0o111 == 0 {
+                log::error!("Init binary exists but is not executable: {}", symlink_path);
+                log::error!("Permissions: {:o}", mode);
+                return Err(Error::new(std::io::ErrorKind::PermissionDenied, "Init binary is not executable"));
+            }
+            log::info!("Init binary verified at {} before pivot", symlink_path);
+        }
+    }
+    Ok(())
+}
+
+/// Verify init binary exists and handle symlinks appropriately
+pub fn verify_init_binary(init_path: &str, root_mpt: &str) -> Result<(), Error> {
+    let init_path_obj = Path::new(init_path);
+
+    log::debug!("Checking for init binary at: {}", init_path);
+
+    let init_exists = init_path_obj.exists() || init_path_obj.symlink_metadata().is_ok();
+
+    if !init_exists {
+        log::error!("Init binary not found at: {}", init_path);
+        log::error!("The root filesystem mounted but does not contain the init program");
+
+        if let Ok(entries) = std::fs::read_dir(root_mpt) {
+            log::error!("Contents of {}:", root_mpt);
+            for entry in entries.take(10).flatten() {
+                log::error!("  - {}", entry.path().display());
+            }
+        }
+
+        return Err(Error::new(std::io::ErrorKind::NotFound, format!("Init binary not found after mount: {}", init_path)));
+    }
+
+    if let Ok(metadata) = init_path_obj.symlink_metadata() {
+        if metadata.is_symlink() {
+            log::debug!("Init is a symlink at {}", init_path);
+            if let Ok(target) = std::fs::read_link(init_path_obj) {
+                log::debug!("Init symlink points to: {}", target.display());
+                verify_symlink_target(init_path, &target, root_mpt)?;
+            }
+        } else {
+            let perms = metadata.permissions();
+            let mode = perms.mode();
+            if mode & 0o111 == 0 {
+                log::error!("Init binary exists but is not executable: {}", init_path);
+                log::error!("Permissions: {:o}", mode);
+                return Err(Error::new(std::io::ErrorKind::PermissionDenied, "Init binary is not executable"));
+            }
+            log::info!("Init binary verified at {} before pivot", init_path);
+        }
+    }
+
+    Ok(())
 }

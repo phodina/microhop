@@ -5,11 +5,23 @@ mod logger;
 mod microhop;
 mod overlayfs;
 
-use crate::microhop::{get_blk_devices, greet, mount_fs, SYS_MPT};
+use crate::microhop::{get_blk_devices, greet, mount_fs, verify_init_binary, SYS_MPT};
 use nix::{mount::MsFlags, unistd};
 use std::{ffi::CString, fs::DirBuilder, io::Error, os::unix::fs::DirBuilderExt, path::Path};
 
 static LOGGER: logger::STDOUTLogger = logger::STDOUTLogger;
+
+// Git commit hash embedded at build time
+const GIT_COMMIT_HASH: &str = match option_env!("GIT_COMMIT_HASH") {
+    Some(hash) => hash,
+    None => "unknown",
+};
+
+// Enabled features embedded at build time
+const ENABLED_FEATURES: &str = match option_env!("ENABLED_FEATURES") {
+    Some(features) => features,
+    None => "fsck",
+};
 
 fn main() -> Result<(), Error> {
     // Set logger
@@ -56,6 +68,14 @@ fn main() -> Result<(), Error> {
     }
 
     greet(&cfg)?;
+
+    log::info!("Microhop build info:");
+    log::info!("  Git commit: {}", GIT_COMMIT_HASH);
+    if ENABLED_FEATURES.is_empty() {
+        log::info!("  Features: none (default build)");
+    } else {
+        log::info!("  Features: {}", ENABLED_FEATURES);
+    }
 
     if let Some(metadata) = cfg.get_metadata() {
         log::debug!("Configuration metadata:");
@@ -107,61 +127,8 @@ fn main() -> Result<(), Error> {
 
     if let Some(root_mpt) = root_mountpoint {
         let init_in_rootfs = format!("{}{}", root_mpt, cfg.get_init_path());
-        let init_path_obj = Path::new(&init_in_rootfs);
-
-        log::debug!("Checking for init binary at: {}", init_in_rootfs);
-
-        // Check using symlink_metadata to detect symlinks without following them
-        let init_exists = init_path_obj.exists() || init_path_obj.symlink_metadata().is_ok();
-
-        if !init_exists {
-            log::error!("Init binary not found at: {}", init_in_rootfs);
-            log::error!("The root filesystem mounted but does not contain the init program");
-            log::error!("Expected init at: {}", cfg.get_init_path());
-
-            // Try to list what's actually in the root
-            if let Ok(entries) = std::fs::read_dir(root_mpt) {
-                log::error!("Contents of {}:", root_mpt);
-                for entry in entries.take(10).flatten() {
-                    log::error!("  - {}", entry.path().display());
-                }
-            }
-
-            return Err(Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Init binary not found after mount: {}", init_in_rootfs),
-            ));
-        }
-
-        // If it's a symlink, check if the target exists
-        if let Ok(metadata) = init_path_obj.symlink_metadata() {
-            if metadata.is_symlink() {
-                log::debug!("Init is a symlink at {}", init_in_rootfs);
-                if let Ok(target) = std::fs::read_link(init_path_obj) {
-                    log::debug!("Init symlink points to: {}", target.display());
-                    if !init_path_obj.exists() {
-                        log::warn!("Init symlink target does not exist yet, but will check after pivot");
-                    }
-                }
-            }
-        }
-
-        // Check if init is executable
-        if let Ok(metadata) = std::fs::metadata(&init_in_rootfs) {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let perms = metadata.permissions();
-                let mode = perms.mode();
-                if mode & 0o111 == 0 {
-                    log::error!("Init binary exists but is not executable: {}", init_in_rootfs);
-                    log::error!("Permissions: {:o}", mode);
-                    return Err(Error::new(std::io::ErrorKind::PermissionDenied, "Init binary is not executable"));
-                }
-            }
-
-            log::info!("Init binary verified at {} before pivot", init_in_rootfs);
-        }
+        // Use the extracted function to verify init binary before pivot
+        verify_init_binary(&init_in_rootfs, root_mpt)?;
     } else {
         log::warn!("Could not determine root mountpoint for init verification");
     }
