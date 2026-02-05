@@ -366,6 +366,13 @@ impl IrfsGen {
             writeln!(fp, "  base: {}", firmware.base)?;
         }
 
+        // Preserve NixOS configuration if present
+        #[cfg(feature = "nixos")]
+        if let Some(nixos) = self.cfg.get_nixos() {
+            writeln!(fp, "\nnixos:")?;
+            writeln!(fp, "  nix_path: {}", nixos.nix_path)?;
+        }
+
         fp.flush()?;
         Ok(())
     }

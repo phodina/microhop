@@ -53,6 +53,7 @@ uuid = "1.8.0"
 [features]
 default = ["fsck"]
 fsck = []
+nixos = ["profile/nixos"]
 
 [profile.release]
 strip = true

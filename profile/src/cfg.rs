@@ -57,6 +57,13 @@ pub struct FirmwareConfig {
     pub base: String,
 }
 
+/// NixOS configuration
+#[cfg(feature = "nixos")]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NixosConfig {
+    pub nix_path: String,
+}
+
 /// Metadata about the configuration generation
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigMetadata {
@@ -76,6 +83,8 @@ pub struct MhConfig {
     overlayfs: Option<OverlayfsConfig>,
     firmware: Option<FirmwareConfig>,
     mask_cmdline: Option<Vec<String>>,
+    #[cfg(feature = "nixos")]
+    nixos: Option<NixosConfig>,
 }
 
 impl MhConfig {
@@ -165,6 +174,12 @@ impl MhConfig {
     /// Get configuration metadata (git commit and generation timestamp)
     pub fn get_metadata(&self) -> Option<&ConfigMetadata> {
         self.metadata.as_ref()
+    }
+
+    /// Get NixOS configuration
+    #[cfg(feature = "nixos")]
+    pub fn get_nixos(&self) -> Option<&NixosConfig> {
+        self.nixos.as_ref()
     }
 }
 
