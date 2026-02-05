@@ -172,7 +172,35 @@ fn main() -> Result<(), Error> {
     }
     for t in SYS_MPT {
         let tgt = format!("{}{}", final_root, t.dst);
-        nix::mount::mount(Some(t.dst), tgt.as_str(), Some(t.fstype), MsFlags::MS_MOVE, Option::<&str>::None)?;
+        log::info!("Moving {} -> {}", t.dst, tgt);
+
+        if let Some(parent) = Path::new(&tgt).parent() {
+            if !parent.exists() {
+                log::debug!("Creating parent directory: {}", parent.display());
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    log::error!("Failed to create parent directory {}: {}", parent.display(), e);
+                    return Err(e);
+                }
+            }
+        }
+
+        if !Path::new(&tgt).exists() {
+            log::debug!("Creating target directory: {}", tgt);
+            if let Err(e) = std::fs::create_dir_all(&tgt) {
+                log::error!("Failed to create target directory {}: {}", tgt, e);
+                return Err(e);
+            }
+        }
+
+        match nix::mount::mount(Some(t.dst), tgt.as_str(), Some(t.fstype), MsFlags::MS_MOVE, Option::<&str>::None) {
+            Ok(()) => log::debug!("Successfully moved {} to {}", t.dst, tgt),
+            Err(e) => {
+                log::error!("Failed to move {} to {}: {}", t.dst, tgt, e);
+                log::error!("Source exists: {}", Path::new(t.dst).exists());
+                log::error!("Target exists: {}", Path::new(&tgt).exists());
+                return Err(Error::other(format!("Mount move failed: {}", e)));
+            }
+        }
     }
 
     // Pivot the system
