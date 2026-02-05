@@ -104,6 +104,7 @@
 
             nativeBuildInputs = (with pkgs.pkgsStatic; [
               pkg-config
+              git # To embed the build commit ID to microhop.conf 
               rustPlatform.bindgenHook
             ]) ++ [
               microhopPkg
