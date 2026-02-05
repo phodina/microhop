@@ -48,7 +48,7 @@
 
           buildType = "release";
 
-          cargoBuildFlags = [ "-p" "microhop" ];
+          cargoBuildFlags = [ "-p" "microhop" "--features" "nixos" ];
 
           doCheck = false;
 
@@ -121,7 +121,7 @@
 
             buildType = "release";
 
-            cargoBuildFlags = [ "-p" "microgen" ];
+            cargoBuildFlags = [ "-p" "microgen" "--features" "nixos" ];
 
             # Set environment variable to point to microhop and e2fsck binaries for include_bytes!()
             # The nativeBuildInputs ensures these are available at build time
