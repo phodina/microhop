@@ -19,10 +19,10 @@ jobs:
             package: microhop
             runs-on: ubuntu-latest
           - system: aarch64-linux
-            package: microgen
+            package: microhop
             runs-on: ubuntu-latest
           - system: x86_64-linux
-            package: microgen
+            package: microhop
             runs-on: ubuntu-latest
 
     runs-on: ${{ matrix.runs-on }}
