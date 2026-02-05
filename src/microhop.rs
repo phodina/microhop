@@ -1,7 +1,7 @@
 use profile::cfg::MhConfig;
 use std::io::Error;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use syslib::blk::BlkInfo;
 use uuid::Uuid;
 
@@ -66,6 +66,8 @@ fn run_external_e2fsck(device: &str) -> Result<i32, String> {
     let mut cmd = Command::new(e2fsck_path);
     cmd.arg("-p");
     cmd.arg(device);
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
 
     match cmd.status() {
         Ok(st) => match st.code() {

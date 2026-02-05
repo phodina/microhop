@@ -1,5 +1,10 @@
 use profile::cfg::{MhConfig, OverlayfsConfig};
-use std::{fs::DirBuilder, io::Error, os::unix::fs::DirBuilderExt, process::Command};
+use std::{
+    fs::DirBuilder,
+    io::Error,
+    os::unix::fs::DirBuilderExt,
+    process::{Command, Stdio},
+};
 use syslib::blk::BlkInfo;
 
 /// Try to prepare and mount overlayfs. Returns Ok(Some(merged_dir)) when overlay is ready
@@ -40,17 +45,12 @@ pub fn try_setup_overlay(cfg: &MhConfig, temp_mpt: &str, overlay_cfg: &Overlayfs
                     cmd.arg("-n");
                 }
                 cmd.arg(device);
+                cmd.stdout(Stdio::null());
+                cmd.stderr(Stdio::null());
 
                 match cmd.output() {
                     Ok(out) => {
-                        let stdout = String::from_utf8_lossy(&out.stdout);
                         let stderr = String::from_utf8_lossy(&out.stderr);
-                        if !stdout.is_empty() {
-                            log::info!("e2fsck stdout: {}", stdout);
-                        }
-                        if !stderr.is_empty() {
-                            log::info!("e2fsck stderr: {}", stderr);
-                        }
 
                         if stderr.contains("Bad magic number") {
                             log::info!("e2fsck reported bad magic; trying alternate superblocks for {}", device);
@@ -65,16 +65,10 @@ pub fn try_setup_overlay(cfg: &MhConfig, temp_mpt: &str, overlay_cfg: &Overlayfs
                                         rerun.arg("-n");
                                     }
                                     rerun.arg(device);
+                                    rerun.stdout(Stdio::null());
+                                    rerun.stderr(Stdio::null());
                                     match rerun.output() {
                                         Ok(rout) => {
-                                            let rout_stdout = String::from_utf8_lossy(&rout.stdout);
-                                            let rout_stderr = String::from_utf8_lossy(&rout.stderr);
-                                            if !rout_stdout.is_empty() {
-                                                log::info!("re-e2fsck stdout: {}", rout_stdout);
-                                            }
-                                            if !rout_stderr.is_empty() {
-                                                log::info!("re-e2fsck stderr: {}", rout_stderr);
-                                            }
                                             if let Some(rc) = rout.status.code() {
                                                 return Ok(rc);
                                             }

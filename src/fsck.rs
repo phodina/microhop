@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// Run an external `e2fsck` for automatic fixes.
 pub fn fsck_ext2(device: &str) -> Result<i32, String> {
@@ -12,6 +12,8 @@ pub fn fsck_ext2(device: &str) -> Result<i32, String> {
     let mut cmd = Command::new(e2fsck_path);
     cmd.arg("-p");
     cmd.arg(device);
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
 
     match cmd.status() {
         Ok(st) => match st.code() {
@@ -36,19 +38,19 @@ pub fn restore_superblock_from_backup(device: &str) -> Result<bool, String> {
 
     for &bnum in &backups {
         let bstr = format!("{}", bnum);
-        let out = Command::new(e2fsck_path).arg("-b").arg(&bstr).arg("-f").arg("-y").arg(device).output();
+        let out = Command::new(e2fsck_path)
+            .arg("-b")
+            .arg(&bstr)
+            .arg("-f")
+            .arg("-y")
+            .arg(device)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
 
         match out {
             Ok(o) => {
                 log::info!("running: e2fsck -b {} -f -y {}", bstr, device);
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                let stderr = String::from_utf8_lossy(&o.stderr);
-                if !stdout.is_empty() {
-                    log::info!("e2fsck -b {} stdout: {}", bstr, stdout);
-                }
-                if !stderr.is_empty() {
-                    log::info!("e2fsck -b {} stderr: {}", bstr, stderr);
-                }
                 if let Some(code) = o.status.code() {
                     if code == 0 || code == 1 {
                         log::info!("e2fsck -b {} succeeded with code {}", bstr, code);
