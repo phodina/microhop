@@ -109,6 +109,8 @@ fn run_external_e2fsck(device: &str) -> Result<i32, String> {
 /// Returns Ok(true) if all mounts succeeded, Ok(false) if some failed
 pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) -> Result<bool, Error> {
     use nix::mount::MsFlags;
+    use std::fs::DirBuilder;
+    use std::os::unix::fs::DirBuilderExt;
     let mut all_success = true;
 
     for t in filesystems {
@@ -116,6 +118,17 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) -> Result<bool, Err
         if let Some(mode) = &t.mode {
             if mode.as_ref() == "ro" {
                 flags |= MsFlags::MS_RDONLY;
+            }
+        }
+
+        // Ensure the mount point directory exists before mounting
+        let dst_path = Path::new(t.dst.as_ref());
+        if !dst_path.exists() {
+            log::debug!("Creating mount point directory: {}", t.dst.as_ref());
+            if let Err(e) = DirBuilder::new().recursive(true).mode(0o755).create(dst_path) {
+                log::error!("Failed to create mount point directory {}: {}", t.dst.as_ref(), e);
+                all_success = false;
+                continue;
             }
         }
 
