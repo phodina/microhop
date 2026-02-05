@@ -73,6 +73,11 @@
             inherit pkgs nixpkgs;
           };
 
+          # NixOS systemd rootfs as ext4 image
+          nixos-systemd-rootfs = import ./nixos/nixos-systemd/rootfs.nix {
+            inherit pkgs nixpkgs;
+          };
+
           # Produce a corrupted ext4 image (external overlay) from the flake
           nixos-rootfs-img = pkgs.runCommand "test-rootfs-img" {
             nativeBuildInputs = with pkgs; [ coreutils e2fsprogsNoTest ];
@@ -145,6 +150,7 @@
           kernel = bootComponents.kernel;
           u-boot = bootComponents.u-boot;
           nixos-rootfs = bootComponents.nixos-rootfs;
+          nixos-systemd-rootfs = bootComponents.nixos-systemd-rootfs;
 
           initramfs-microgen = import ./nixos/initramfs-microgen.nix {
             inherit pkgs;
@@ -152,6 +158,15 @@
             microgen = self.packages.${system}.microhop;
             microhop = microhopPkg;
             microhopConfig = bootComponents.microhopConfig;
+          };
+
+          # NixOS systemd-specific initramfs
+          nixos-systemd-initramfs = import ./nixos/initramfs-microgen.nix {
+            inherit pkgs;
+            kernel = bootComponents.kernel;
+            microgen = self.packages.${system}.microhop;
+            microhop = microhopPkg;
+            microhopConfig = import ./nixos/nixos-systemd/microhop-config.nix { inherit pkgs; };
           };
 
           nixos-example = pkgs.writeScriptBin "boot-qemu-overlayfs-musl" ''
@@ -202,12 +217,79 @@
                 -nographic
 
           '';
+
+          nixos-systemd-example = pkgs.writeScriptBin "boot-nixos-systemd" ''
+            #!${pkgs.bash}/bin/bash
+
+            KERNEL="${bootComponents.kernel}/Image"
+            INITRD="${self.packages.${system}.nixos-systemd-initramfs}/initrd"
+            EXT4_ROOTFS="${bootComponents.nixos-systemd-rootfs}"
+
+            # Copy ext4 image out of the Nix store to a writable temp file (QEMU needs write access)
+            TMP_EXT4=$(mktemp /tmp/nixos-systemd-rootfs.ext4.XXXX)
+            cp -f "$EXT4_ROOTFS" "$TMP_EXT4"
+            chmod 644 "$TMP_EXT4"
+            trap 'rm -f "$TMP_EXT4"' EXIT
+
+            echo "=========================================="
+            echo "  NixOS Systemd Boot Flow"
+            echo "=========================================="
+            echo "Booting NixOS with systemd init and microhop initramfs..."
+            echo ""
+            echo "Kernel:         $KERNEL"
+            echo "Initrd:         $INITRD"
+            echo "Rootfs (store): $EXT4_ROOTFS"
+            echo "Rootfs (temp):  $TMP_EXT4"
+            echo ""
+            echo "Boot flow: Kernel -> Microhop initramfs -> NixOS systemd"
+            echo "=========================================="
+            echo ""
+
+            echo "Starting QEMU with pre-built ext4 rootfs..."
+            echo ""
+
+            exec ${pkgs.qemu}/bin/qemu-system-aarch64 \
+              -machine virt \
+              -cpu cortex-a57 \
+              -smp 2 \
+              -m 1024 \
+              -kernel "$KERNEL" \
+              -initrd "$INITRD" \
+              -drive file="$TMP_EXT4",if=none,format=raw,id=hd0 \
+              -device virtio-blk-device,drive=hd0 \
+              -append "console=ttyAMA0,115200 root=/dev/vda rootfstype=ext4 rw init=/nix/var/nix/profiles/system" \
+              -nographic \
+              -serial mon:stdio \
+              "$@"
+          '';
+        } else {}) // (if system == "aarch64-linux" then {
+
+          nixos-systemd = let
+            nixosSystem = nixpkgs.lib.nixosSystem {
+              system = "aarch64-linux";
+              modules = [ 
+                {
+                  _module.args = {
+                    inherit nixpkgs;
+                    microhop = microhopPkg;
+                    microgen = self.packages.${system}.microhop;
+                  };
+                }
+                ./nixos/nixos-systemd/system.nix 
+              ];
+            };
+          in nixosSystem.config.system.build.qemu-system;
+
         } else {});
 
         apps = if system == "aarch64-linux" then {
           nixos-example = {
             type = "app";
             program = "${self.packages.${system}.nixos-example}/bin/boot-qemu-overlayfs-musl";
+          };
+          nixos-systemd = {
+            type = "app";
+            program = "${self.packages.${system}.nixos-systemd-example}/bin/boot-nixos-systemd";
           };
           default = {
             type = "app";
