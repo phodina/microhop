@@ -34,6 +34,27 @@ let
     CONFIG_ADVISE_SYSCALLS=y
     CONFIG_EMBEDDED=n
 
+    # Control Group support (required by systemd)
+    CONFIG_CGROUPS=y
+    CONFIG_CGROUP_FREEZER=y
+    CONFIG_CGROUP_PIDS=y
+    CONFIG_CGROUP_DEVICE=y
+    CONFIG_CGROUP_CPUACCT=y
+    CONFIG_CGROUP_PERF=y
+    CONFIG_CGROUP_BPF=y
+    CONFIG_MEMCG=y
+    CONFIG_BLK_CGROUP=y
+
+    # File handle support (required by systemd)
+    CONFIG_FHANDLE=y
+
+    # SECCOMP support (required by systemd)
+    CONFIG_SECCOMP=y
+    CONFIG_SECCOMP_FILTER=y
+
+    # DMI support (required by systemd)
+    CONFIG_DMIID=y
+
     # Kernel compression
     CONFIG_KERNEL_GZIP=n
     CONFIG_KERNEL_BZIP2=n
@@ -75,7 +96,8 @@ let
     CONFIG_COREDUMP=y
 
     # Networking support
-    CONFIG_NET=n
+    CONFIG_NET=y
+    CONFIG_UNIX=y
 
     # Device Drivers
     CONFIG_PCI=n
@@ -158,6 +180,9 @@ let
     CONFIG_MISC_FILESYSTEMS=y
     CONFIG_DEVTMPFS_MOUNT=y
 
+    # AutoFS (required by systemd)
+    CONFIG_AUTOFS_FS=y
+
     # Pseudo filesystems
     CONFIG_PROC_KCORE=n
 
@@ -185,11 +210,15 @@ let
     CONFIG_SECURITYFS=n
     CONFIG_SECURITY_NETWORK=n
 
-    # Cryptographic API
+    # Cryptographic API (required by systemd)
     CONFIG_CRYPTO=y
     CONFIG_CRYPTO_HASH=y
     CONFIG_CRYPTO_HASH2=y
     CONFIG_CRYPTO_CRC32C=y
+    CONFIG_CRYPTO_USER_API=y
+    CONFIG_CRYPTO_USER_API_HASH=y
+    CONFIG_CRYPTO_HMAC=y
+    CONFIG_CRYPTO_SHA256=y
 
     # Library routines
     CONFIG_CRC_CCITT=n
