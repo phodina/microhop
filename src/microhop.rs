@@ -37,8 +37,16 @@ pub fn greet(cfg: &MhConfig) -> Result<(), Error> {
     // Say hello
     log::info!("Welcome to the Microhop {}!", VERSION);
 
-    // Debug itsel
+    // Debug itself
     log::debug!("Init program: {}", cfg.get_init_path());
+
+    // Log kernel cmdline
+    if let Ok(cmdline) = std::fs::read_to_string("/proc/cmdline") {
+        log::debug!("Kernel cmdline: {}", cmdline.trim());
+    } else {
+        log::warn!("Could not read /proc/cmdline");
+    }
+
     for dsk in cfg.get_disks()? {
         log::debug!(
             "Disk device: {}, fs type: {}, mountpoint: {:?}, mode: {}",
@@ -79,8 +87,10 @@ fn run_external_e2fsck(device: &str) -> Result<i32, String> {
 }
 
 /// Mount configured filesystems in a batch
-pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) {
+/// Returns Ok(true) if all mounts succeeded, Ok(false) if some failed
+pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) -> Result<bool, Error> {
     use nix::mount::MsFlags;
+    let mut all_success = true;
 
     for t in filesystems {
         let mut flags = MsFlags::MS_NOATIME;
@@ -90,33 +100,53 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) {
             }
         }
 
-        if let Err(err) = syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags) {
-            log::error!("Error mounting {}: {}", t.dst.as_ref(), err);
+        let mount_result = syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags);
 
-            // Attempt a conservative filesystem check using the embedded fsck wrapper
+        if let Err(err) = mount_result {
+            log::error!("Failed to mount {} ({}): {}", t.dst.as_ref(), t.dev.as_ref(), err);
+            log::warn!("Assuming filesystem corruption, attempting repair...");
+
+            // Attempt filesystem check - only for ext filesystems currently
             let fstype = t.fstype.as_ref();
             if fstype.starts_with("ext") {
+                log::info!("Running e2fsck on {}", t.dev.as_ref());
                 match run_external_e2fsck(t.dev.as_ref()) {
                     Ok(code) => {
-                        log::info!("e2fsck returned exit code {} for device {}", code, t.dev.as_ref());
-                        if code == 0 {
-                            log::info!("Retrying mount for {} after successful e2fsck", t.dst.as_ref());
-                            if let Err(err2) =
-                                syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags)
-                            {
-                                log::error!("Retry mount failed {}: {}", t.dst.as_ref(), err2);
+                        log::info!("e2fsck completed with exit code {}", code);
+                        // Exit codes: 0=no errors, 1=errors corrected, 2=system should reboot
+                        if code == 0 || code == 1 {
+                            log::info!("Filesystem check successful, retrying mount...");
+                            match syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags) {
+                                Ok(_) => {
+                                    log::info!("Successfully mounted {} after fsck", t.dst.as_ref());
+                                }
+                                Err(err2) => {
+                                    log::error!("Mount still failed after fsck: {}", err2);
+                                    all_success = false;
+                                }
                             }
                         } else {
-                            log::error!("e2fsck reported non-zero status, not retrying mount");
+                            log::error!("e2fsck reported errors (exit code {}), mount may be unsafe", code);
+                            all_success = false;
                         }
                     }
                     Err(e) => {
-                        log::error!("e2fsck failed to run for {}: {}", t.dev.as_ref(), e);
+                        log::error!("Failed to run e2fsck: {}", e);
+                        log::error!("Cannot verify filesystem integrity");
+                        all_success = false;
                     }
                 }
+            } else {
+                log::error!("No fsck available for filesystem type: {}", fstype);
+                log::error!("Manual intervention may be required");
+                all_success = false;
             }
-        };
+        } else {
+            log::debug!("Mounted {} at {} with flags {:?}", t.dev.as_ref(), t.dst.as_ref(), flags);
+        }
     }
+
+    Ok(all_success)
 }
 
 /// Parse device specification and resolve to device path

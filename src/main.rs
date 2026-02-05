@@ -79,13 +79,92 @@ fn main() -> Result<(), Error> {
         log::debug!("Init sysroot path: {}", temp_mpt);
     }
 
-    mount_fs(SYS_MPT);
+    mount_fs(SYS_MPT)?;
 
     let (root_fstype, blk_mpt) = get_blk_devices(&cfg)?;
     if root_fstype.is_empty() {
         log::error!("Type of the root filesystem was not detected. Please double-check the configuration!");
+        return Err(Error::new(std::io::ErrorKind::InvalidData, "Root filesystem type not detected"));
     }
-    mount_fs(&blk_mpt);
+
+    // Mount block devices - this will attempt fsck on any mount failures
+    let mount_success = mount_fs(&blk_mpt)?;
+
+    if !mount_success {
+        log::error!("Failed to mount one or more filesystems!");
+        log::error!("This usually means:");
+        log::error!("  1. The filesystem is severely corrupted (fsck failed)");
+        log::error!("  2. The device specification is incorrect");
+        log::error!("  3. The filesystem type is not supported by the kernel");
+        return Err(Error::other("Root filesystem mount failed"));
+    }
+
+    // Verify that the root filesystem was successfully mounted and contains init
+    let root_mountpoint: Option<&str> = blk_mpt
+        .iter()
+        .find(|m| m.dst.trim_end_matches('/') == cfg.get_sysroot_path().trim_end_matches('/'))
+        .map(|m| m.dst.as_str());
+
+    if let Some(root_mpt) = root_mountpoint {
+        let init_in_rootfs = format!("{}{}", root_mpt, cfg.get_init_path());
+        let init_path_obj = Path::new(&init_in_rootfs);
+
+        log::debug!("Checking for init binary at: {}", init_in_rootfs);
+
+        // Check using symlink_metadata to detect symlinks without following them
+        let init_exists = init_path_obj.exists() || init_path_obj.symlink_metadata().is_ok();
+
+        if !init_exists {
+            log::error!("Init binary not found at: {}", init_in_rootfs);
+            log::error!("The root filesystem mounted but does not contain the init program");
+            log::error!("Expected init at: {}", cfg.get_init_path());
+
+            // Try to list what's actually in the root
+            if let Ok(entries) = std::fs::read_dir(root_mpt) {
+                log::error!("Contents of {}:", root_mpt);
+                for entry in entries.take(10).flatten() {
+                    log::error!("  - {}", entry.path().display());
+                }
+            }
+
+            return Err(Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Init binary not found after mount: {}", init_in_rootfs),
+            ));
+        }
+
+        // If it's a symlink, check if the target exists
+        if let Ok(metadata) = init_path_obj.symlink_metadata() {
+            if metadata.is_symlink() {
+                log::debug!("Init is a symlink at {}", init_in_rootfs);
+                if let Ok(target) = std::fs::read_link(init_path_obj) {
+                    log::debug!("Init symlink points to: {}", target.display());
+                    if !init_path_obj.exists() {
+                        log::warn!("Init symlink target does not exist yet, but will check after pivot");
+                    }
+                }
+            }
+        }
+
+        // Check if init is executable
+        if let Ok(metadata) = std::fs::metadata(&init_in_rootfs) {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let perms = metadata.permissions();
+                let mode = perms.mode();
+                if mode & 0o111 == 0 {
+                    log::error!("Init binary exists but is not executable: {}", init_in_rootfs);
+                    log::error!("Permissions: {:o}", mode);
+                    return Err(Error::new(std::io::ErrorKind::PermissionDenied, "Init binary is not executable"));
+                }
+            }
+
+            log::info!("Init binary verified at {} before pivot", init_in_rootfs);
+        }
+    } else {
+        log::warn!("Could not determine root mountpoint for init verification");
+    }
 
     let mut use_overlayfs = cfg.use_overlayfs();
     let mut final_root = cfg.get_sysroot_path();
@@ -172,6 +251,37 @@ fn main() -> Result<(), Error> {
     log::info!("Launching init at {}", cfg.get_init_path());
 
     let init_path = cfg.get_init_path();
+
+    // Verify init binary exists and is executable
+    let init_path_obj = Path::new(&init_path);
+    if !init_path_obj.exists() {
+        log::error!("Init binary not found at: {}", init_path);
+        log::error!("The root filesystem may be corrupted or not properly mounted");
+        log::error!("Try running fsck on the root partition manually");
+        return Err(Error::new(std::io::ErrorKind::NotFound, format!("Init binary not found: {}", init_path)));
+    }
+
+    if let Ok(metadata) = std::fs::metadata(&init_path) {
+        if !metadata.is_file() {
+            log::error!("Init path exists but is not a file: {}", init_path);
+            return Err(Error::new(std::io::ErrorKind::InvalidInput, "Init is not a file"));
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = metadata.permissions();
+            let mode = perms.mode();
+            if mode & 0o111 == 0 {
+                log::error!("Init binary is not executable: {}", init_path);
+                log::error!("Permissions: {:o}", mode);
+                return Err(Error::new(std::io::ErrorKind::PermissionDenied, "Init is not executable"));
+            }
+        }
+    }
+
+    log::info!("Init binary verified, executing...");
+
     let init_cstring = match CString::new(init_path.clone()) {
         Ok(s) => s,
         Err(err) => {
@@ -188,6 +298,7 @@ fn main() -> Result<(), Error> {
     if let Err(err) = unistd::execv(&init_cstring, &argv) {
         log::error!("Failed to execute init process: {:?}", err);
         log::error!("Init path was: {}", init_path);
+        log::error!("This is a critical error - the system cannot boot");
     }
 
     Ok(())
