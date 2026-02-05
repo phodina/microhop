@@ -161,6 +161,11 @@ impl MhConfig {
     pub fn get_mask_cmdline(&self) -> Vec<String> {
         self.mask_cmdline.clone().unwrap_or_default()
     }
+
+    /// Get configuration metadata (git commit and generation timestamp)
+    pub fn get_metadata(&self) -> Option<&ConfigMetadata> {
+        self.metadata.as_ref()
+    }
 }
 
 /// Get the configuration

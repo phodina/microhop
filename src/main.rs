@@ -57,6 +57,12 @@ fn main() -> Result<(), Error> {
 
     greet(&cfg)?;
 
+    if let Some(metadata) = cfg.get_metadata() {
+        log::debug!("Configuration metadata:");
+        log::debug!("  Git commit: {}", metadata.git_commit);
+        log::debug!("  Generated at: {}", metadata.generated_at);
+    }
+
     // Load required modules
     let mpb = kmodprobe::KModProbe::new();
     for mname in cfg.get_modules() {
