@@ -10,7 +10,8 @@ use kmoddep::{kerman::KernelInfo, modinfo::lsmod};
 use rdgen::IrfsGen;
 use std::{error::Error, io, path::PathBuf};
 
-static VERSION: &str = "0.1.0";
+// Version from Cargo.toml
+static VERSION: &str = env!("CARGO_PKG_VERSION");
 static APPNAME: &str = "microgen";
 
 // Git commit hash embedded at build time

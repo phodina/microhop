@@ -19,10 +19,13 @@
           doCheck = false;
         });
 
+        microgenCargoToml = builtins.fromTOML (builtins.readFile ./microgen/Cargo.toml);
+        version = microgenCargoToml.package.version;
+
         # Internal (not exported) microhop package used by microgen.
         microhopPkg = pkgs.pkgsStatic.rustPlatform.buildRustPackage rec {
           pname = "microhop";
-          version = "0.1.0";
+          inherit version;
 
           src = ./.;
 
@@ -88,12 +91,14 @@
         } else {};
       in
       {
-        packages = {
+          packages = {
           microhop = pkgs.pkgsStatic.rustPlatform.buildRustPackage rec {
             pname = "microhop";
-            version = "0.1.0";
+            inherit version;
 
             src = ./.;
+
+            GIT_COMMIT = self.rev or self.dirtyRev or "unknown";
 
             cargoLock = {
               lockFile = ./Cargo.lock;

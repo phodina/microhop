@@ -6,13 +6,16 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(microhop_binary_path)");
     println!("cargo:rustc-check-cfg=cfg(e2fsck_binary_path)");
 
-    // Capture git commit hash at build time
-    let git_commit = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
+    let git_commit = std::env::var("GIT_COMMIT")
         .ok()
-        .and_then(|output| if output.status.success() { String::from_utf8(output.stdout).ok() } else { None })
-        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .ok()
+                .and_then(|output| if output.status.success() { String::from_utf8(output.stdout).ok() } else { None })
+                .map(|s| s.trim().to_string())
+        })
         .unwrap_or_else(|| "unknown".to_string());
 
     println!("cargo:rustc-env=GIT_COMMIT_HASH={}", git_commit);
