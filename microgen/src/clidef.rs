@@ -2,15 +2,17 @@ use clap::{builder::styling, Arg, Command};
 use nix::sys::utsname::uname;
 
 /// CLI definition
-pub fn clidef(version: &'static str, appname: &'static str) -> Command {
+pub fn clidef(version: &'static str, appname: &'static str, git_commit: &'static str) -> Command {
     let styles = styling::Styles::styled()
         .header(styling::AnsiColor::Yellow.on_default() | styling::Effects::BOLD)
         .usage(styling::AnsiColor::Yellow.on_default() | styling::Effects::BOLD)
         .literal(styling::AnsiColor::BrightGreen.on_default())
         .placeholder(styling::AnsiColor::BrightRed.on_default());
 
+    let version_string = format!("{} (commit: {})", version, git_commit);
+
     Command::new(appname)
-        .version(version)
+        .version(version_string)
         .about(format!("{} - utility for generating microhop-based initramfs", appname))
         .arg(Arg::new("version").short('v').long("version").action(clap::ArgAction::SetTrue).help("Show version of Microhop"))
         .subcommand(
