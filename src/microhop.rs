@@ -206,11 +206,14 @@ pub fn get_blk_devices(cfg: &MhConfig) -> Result<(String, Vec<SystemDir<String>>
     let mut blk_mpt: Vec<SystemDir<String>> = Vec::new();
 
     let mask = cfg.get_mask_cmdline();
-    let cmdline = crate::cmdline::CmdLine::new_with_mask(&mask).unwrap_or_default();
 
     if !mask.is_empty() {
         log::info!("Masking kernel cmdline parameters: {:?}", mask);
+    } else {
+        log::debug!("No cmdline parameters to mask");
     }
+
+    let cmdline = crate::cmdline::CmdLine::new_with_mask(&mask).unwrap_or_default();
 
     if let Some(root_device) = cmdline.get_root_device() {
         log::info!("Using root device from kernel cmdline: {}", root_device);

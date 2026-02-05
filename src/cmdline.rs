@@ -17,11 +17,19 @@ impl CmdLine {
 
         for param in cmdline.split_whitespace() {
             if let Some((key, value)) = param.split_once('=') {
-                if !mask.contains(&key.to_string()) {
+                let is_masked = mask.iter().any(|m| m == key);
+                if is_masked {
+                    log::debug!("Masking cmdline parameter: {}={}", key, value);
+                } else {
                     params.insert(key.to_string(), value.to_string());
                 }
-            } else if !mask.contains(&param.to_string()) {
-                params.insert(param.to_string(), String::new());
+            } else {
+                let is_masked = mask.iter().any(|m| m == param);
+                if is_masked {
+                    log::debug!("Masking cmdline parameter: {}", param);
+                } else {
+                    params.insert(param.to_string(), String::new());
+                }
             }
         }
 
