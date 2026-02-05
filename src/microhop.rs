@@ -30,6 +30,7 @@ pub const SYS_MPT: &[SystemDir<&'static str>] = &[
     SystemDir::new("proc", "none", "/proc"),
     SystemDir::new("sysfs", "none", "/sys"),
     SystemDir::new("devtmpfs", "devtmpfs", "/dev"),
+    SystemDir::new("tmpfs", "tmpfs", "/run"),
 ];
 
 // Initial greetings
