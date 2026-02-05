@@ -78,15 +78,25 @@ fn run_external_e2fsck(device: &str) -> Result<i32, String> {
         return Err(format!("{} not found in initramfs", e2fsck_path));
     }
 
+    log::info!("Starting filesystem check on {}", device);
+    log::info!("This may take several minutes for corrupted filesystems...");
+
     let mut cmd = Command::new(e2fsck_path);
-    cmd.arg("-p");
+    // Use -y (answer yes to all) for severe corruption
+    // -f forces check even if filesystem seems clean
+    // -v for verbose output
+    cmd.arg("-y");
+    cmd.arg("-f");
     cmd.arg(device);
     cmd.stdout(Stdio::null());
     cmd.stderr(Stdio::null());
 
     match cmd.status() {
         Ok(st) => match st.code() {
-            Some(c) => Ok(c),
+            Some(c) => {
+                log::info!("e2fsck finished with exit code {}", c);
+                Ok(c)
+            }
             None => Err("e2fsck terminated by signal".to_string()),
         },
         Err(e) => Err(format!("failed to execute /bin/e2fsck: {}", e)),
