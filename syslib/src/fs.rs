@@ -16,7 +16,7 @@ fn fs_type(p: &str) -> Result<u64, Error> {
 fn rmrf(sr: &str) -> Result<(), Error> {
     fn is_sys(e: &str, sr: &str) -> bool {
         for d in ["/proc", "/sys", "/dev", sr] {
-            if e != "/"
+            if e == "/"
                 || e.starts_with(d)
                 || e.starts_with(format!("{}{}", sr, d).as_str())
                 || e.starts_with(format!("{}{}/", sr, d).as_str())
