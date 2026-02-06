@@ -4,6 +4,7 @@ mod kmodprobe;
 mod logger;
 mod microhop;
 mod overlayfs;
+mod recovery;
 
 use crate::microhop::{get_blk_devices, greet, mount_fs, verify_init_binary, SYS_MPT};
 use nix::{mount::MsFlags, unistd};
