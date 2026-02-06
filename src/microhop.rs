@@ -185,6 +185,34 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) -> Result<bool, Err
                                     }
                                 }
                             }
+                        } else if code & 8 != 0 {
+                            log::error!("e2fsck reported operational error (exit code {})", code);
+                            log::warn!("This often indicates superblock corruption, trying backup superblock recovery...");
+
+                            use crate::fsck::restore_superblock_from_backup;
+                            match restore_superblock_from_backup(t.dev.as_ref()) {
+                                Ok(true) => {
+                                    log::info!("Backup superblock recovery succeeded! Retrying mount...");
+                                    match syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags) {
+                                        Ok(_) => {
+                                            log::info!("Successfully mounted {} after superblock recovery", t.dst.as_ref());
+                                            log::warn!("Filesystem was severely corrupted but has been recovered");
+                                        }
+                                        Err(err2) => {
+                                            log::error!("Mount failed even after superblock recovery: {}", err2);
+                                            all_success = false;
+                                        }
+                                    }
+                                }
+                                Ok(false) => {
+                                    log::error!("Backup superblock recovery failed - no working backup found");
+                                    all_success = false;
+                                }
+                                Err(backup_err) => {
+                                    log::error!("Error during backup superblock recovery: {}", backup_err);
+                                    all_success = false;
+                                }
+                            }
                         } else if code == 4 {
                             log::error!("e2fsck left errors uncorrected (exit code {})", code);
                             log::warn!("Attempting read-only mount as last resort...");
