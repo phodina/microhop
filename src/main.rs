@@ -25,6 +25,15 @@ const ENABLED_FEATURES: &str = match option_env!("ENABLED_FEATURES") {
 };
 
 fn main() -> Result<(), Error> {
+    if let Err(e) = boot_system() {
+        log::error!("Critical system boot failure: {}", e);
+        recovery::interactive_recovery_mode(&format!("Boot process failed: {}", e));
+    }
+
+    Ok(())
+}
+
+fn boot_system() -> Result<(), Error> {
     // Set logger
     let cfg = match profile::cfg::get_mh_config(None) {
         Ok(cfg) => cfg,
@@ -68,7 +77,10 @@ fn main() -> Result<(), Error> {
         log::set_max_level(log_level);
     }
 
-    greet(&cfg)?;
+    if let Err(e) = greet(&cfg) {
+        log::error!("Failed to display greeting: {}", e);
+        return Err(e);
+    }
 
     log::info!("Microhop build info:");
     log::info!("  Git commit: {}", GIT_COMMIT_HASH);
@@ -88,6 +100,7 @@ fn main() -> Result<(), Error> {
     let mpb = kmodprobe::KModProbe::new();
     for mname in cfg.get_modules() {
         mpb.modprobe(mname);
+        log::debug!("Loaded kernel module: {}", mname);
     }
     if !cfg.get_modules().is_empty() {
         log::info!("loaded required kernel modules");
@@ -96,13 +109,26 @@ fn main() -> Result<(), Error> {
     // Create sysroot entry point
     let temp_mpt = &cfg.get_sysroot_path();
     if !Path::new(temp_mpt).exists() {
-        DirBuilder::new().recursive(true).mode(0o755).create(temp_mpt.as_str())?;
+        if let Err(e) = DirBuilder::new().recursive(true).mode(0o755).create(temp_mpt.as_str()) {
+            log::error!("Failed to create sysroot directory {}: {}", temp_mpt, e);
+            return Err(e);
+        }
         log::debug!("Init sysroot path: {}", temp_mpt);
     }
 
-    mount_fs(SYS_MPT)?;
+    if let Err(e) = mount_fs(SYS_MPT) {
+        log::error!("Failed to mount system filesystems: {}", e);
+        return Err(e);
+    }
 
-    let (root_fstype, blk_mpt) = get_blk_devices(&cfg)?;
+    let (root_fstype, blk_mpt) = match get_blk_devices(&cfg) {
+        Ok(result) => result,
+        Err(e) => {
+            log::error!("Failed to detect block devices: {}", e);
+            return Err(e);
+        }
+    };
+
     if root_fstype.is_empty() {
         log::error!("Type of the root filesystem was not detected. Please double-check the configuration!");
         return Err(Error::new(std::io::ErrorKind::InvalidData, "Root filesystem type not detected"));
@@ -154,7 +180,10 @@ fn main() -> Result<(), Error> {
                 use_overlayfs = false;
                 final_root = cfg.get_sysroot_path();
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                log::error!("Overlayfs setup failed: {}", e);
+                return Err(e);
+            }
         }
     }
 
@@ -205,7 +234,10 @@ fn main() -> Result<(), Error> {
     }
 
     // Pivot the system
-    syslib::fs::pivot(&final_root, if use_overlayfs { "overlay" } else { root_fstype.as_str() })?;
+    if let Err(e) = syslib::fs::pivot(&final_root, if use_overlayfs { "overlay" } else { root_fstype.as_str() }) {
+        log::error!("Failed to pivot root filesystem: {}", e);
+        return Err(Error::other(format!("Root pivot failed: {}", e)));
+    }
 
     // Post-pivot verification: ensure the root filesystem is the expected one.
     if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
@@ -295,7 +327,9 @@ fn main() -> Result<(), Error> {
         log::error!("Failed to execute init process: {:?}", err);
         log::error!("Init path was: {}", init_path);
         log::error!("This is a critical error - the system cannot boot");
+        return Err(Error::other(format!("Failed to execute init: {:?}", err)));
     }
 
+    // This should never be reached since execv replaces the process
     Ok(())
 }
