@@ -93,10 +93,23 @@ fn run_external_e2fsck(device: &str) -> Result<i32, String> {
     cmd.stdout(Stdio::null());
     cmd.stderr(Stdio::null());
 
+    log::info!("Running e2fsck with timeout protection...");
+
     match cmd.status() {
         Ok(st) => match st.code() {
             Some(c) => {
                 log::info!("e2fsck finished with exit code {}", c);
+                match c {
+                    0 => log::info!("Filesystem is clean"),
+                    1 => log::info!("Filesystem errors corrected"),
+                    2 => log::warn!("System should be rebooted (but continuing anyway)"),
+                    4 => log::error!("Filesystem errors left uncorrected"),
+                    8 => log::error!("Operational error during fsck"),
+                    16 => log::error!("Usage or syntax error in fsck"),
+                    32 => log::error!("E2fsck canceled by user request"),
+                    128 => log::error!("Shared library error in fsck"),
+                    _ => log::warn!("Unknown e2fsck exit code: {}", c),
+                }
                 Ok(c)
             }
             None => Err("e2fsck terminated by signal".to_string()),
@@ -145,15 +158,46 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) -> Result<bool, Err
                 match run_external_e2fsck(t.dev.as_ref()) {
                     Ok(code) => {
                         log::info!("e2fsck completed with exit code {}", code);
-                        // Exit codes: 0=no errors, 1=errors corrected, 2=system should reboot
-                        if code == 0 || code == 1 {
-                            log::info!("Filesystem check successful, retrying mount...");
+                        if code == 0 || code == 1 || code == 2 {
+                            log::info!("Filesystem check successful or corrected, retrying mount...");
                             match syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags) {
                                 Ok(_) => {
                                     log::info!("Successfully mounted {} after fsck", t.dst.as_ref());
+                                    if code == 2 {
+                                        log::warn!("e2fsck recommends system reboot, but continuing...");
+                                    }
                                 }
                                 Err(err2) => {
                                     log::error!("Mount still failed after fsck: {}", err2);
+                                    log::error!("Attempting fallback recovery methods...");
+
+                                    // Try mounting read-only as a fallback
+                                    let readonly_flags = flags | nix::mount::MsFlags::MS_RDONLY;
+                                    match syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), readonly_flags) {
+                                        Ok(_) => {
+                                            log::warn!("Mounted {} in READ-ONLY mode as fallback", t.dst.as_ref());
+                                            log::warn!("System may have limited functionality");
+                                        }
+                                        Err(err3) => {
+                                            log::error!("Even read-only mount failed: {}", err3);
+                                            all_success = false;
+                                        }
+                                    }
+                                }
+                            }
+                        } else if code == 4 {
+                            log::error!("e2fsck left errors uncorrected (exit code {})", code);
+                            log::warn!("Attempting read-only mount as last resort...");
+
+                            // Try read-only mount for severely damaged filesystems
+                            let readonly_flags = flags | nix::mount::MsFlags::MS_RDONLY;
+                            match syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), readonly_flags) {
+                                Ok(_) => {
+                                    log::warn!("Mounted {} in READ-ONLY mode despite uncorrected errors", t.dst.as_ref());
+                                    log::warn!("Data integrity is NOT guaranteed!");
+                                }
+                                Err(err2) => {
+                                    log::error!("Read-only mount also failed: {}", err2);
                                     all_success = false;
                                 }
                             }
@@ -165,7 +209,32 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) -> Result<bool, Err
                     Err(e) => {
                         log::error!("Failed to run e2fsck: {}", e);
                         log::error!("Cannot verify filesystem integrity");
-                        all_success = false;
+                        log::warn!("Trying backup superblock recovery...");
+
+                        use crate::fsck::restore_superblock_from_backup;
+                        match restore_superblock_from_backup(t.dev.as_ref()) {
+                            Ok(true) => {
+                                log::info!("Backup superblock recovery succeeded! Retrying mount...");
+                                match syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags) {
+                                    Ok(_) => {
+                                        log::info!("Successfully mounted {} after superblock recovery", t.dst.as_ref());
+                                        log::warn!("Filesystem was severely corrupted but has been recovered");
+                                    }
+                                    Err(err2) => {
+                                        log::error!("Mount failed even after superblock recovery: {}", err2);
+                                        all_success = false;
+                                    }
+                                }
+                            }
+                            Ok(false) => {
+                                log::error!("Backup superblock recovery failed - no working backup found");
+                                all_success = false;
+                            }
+                            Err(backup_err) => {
+                                log::error!("Error during backup superblock recovery: {}", backup_err);
+                                all_success = false;
+                            }
+                        }
                     }
                 }
             } else {
