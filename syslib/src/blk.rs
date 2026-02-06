@@ -77,9 +77,30 @@ impl BlkInfo {
         for devname in stats {
             // Get both partitions AND the raw device itself (for direct filesystems like squashfs on /dev/vda)
             if devname.starts_with(dev) {
-                let dev = format!("/dev/{}", devname);
-                let blkid = self.blk_id(dev.as_str())?; // uuid, fstype
-                self.devices.push(BlkDev { path: PathBuf::from(dev), uuid: blkid.0, label: blkid.1, fstype: blkid.2 });
+                let dev_path = format!("/dev/{}", devname);
+
+                if !Path::new(&dev_path).exists() {
+                    log::debug!("Skipping non-existent device: {}", dev_path);
+                    continue;
+                }
+
+                match self.blk_id(dev_path.as_str()) {
+                    Ok((uuid, label, fstype)) => {
+                        // Only add devices with valid filesystem types (or raw devices)
+                        if !fstype.is_empty() || devname == dev {
+                            self.devices.push(BlkDev { 
+                                path: PathBuf::from(&dev_path), 
+                                uuid, 
+                                label, 
+                                fstype 
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to probe device {}: {}", dev_path, e);
+                        log::warn!("Device will be excluded from available devices list");
+                    }
+                }
             }
         }
 
@@ -94,19 +115,29 @@ impl BlkInfo {
         if let Ok(mut pb) = BlkidProbe::new_from_filename(Path::new(dev)) {
             pb.enable_superblocks(true).unwrap_or_default();
             pb.enable_partitions(true).unwrap_or_default();
-            pb.do_safeprobe().unwrap();
 
-            if let Ok(disk_id) = pb.lookup_value("UUID") {
-                uuid = disk_id;
-            }
+            match pb.do_safeprobe() {
+                Ok(_) => {
+                    if let Ok(disk_id) = pb.lookup_value("UUID") {
+                        uuid = disk_id;
+                    }
 
-            if let Ok(disk_fst) = pb.lookup_value("TYPE") {
-                fstype = disk_fst;
-            }
+                    if let Ok(disk_fst) = pb.lookup_value("TYPE") {
+                        fstype = disk_fst;
+                    }
 
-            if let Ok(disk_lbl) = pb.lookup_value("LABEL") {
-                label = disk_lbl;
+                    if let Ok(disk_lbl) = pb.lookup_value("LABEL") {
+                        label = disk_lbl;
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to probe device {} (likely corrupted): {:?}", dev, e);
+                    log::warn!("Device will be skipped in device listing");
+                    // Return empty values for corrupted devices
+                }
             }
+        } else {
+            log::warn!("Failed to create blkid probe for device: {}", dev);
         }
 
         Ok((uuid, label, fstype))
