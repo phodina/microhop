@@ -1,9 +1,14 @@
 .DEFAULT_GOAL := build
-.PHONY:build microhop-release-static microhop-debug-static microgen-release microgen-debug _reset_placeholder
+.PHONY:build microhop-release-static microhop-debug-static microgen-release microgen-debug _reset_placeholder e2fsprogs-static
 
 ARCH := $(shell uname -m)
 ARC_VERSION := $(shell cat src/microhop.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
 ARC_NAME := microhop-${ARC_VERSION}
+
+E2FSPROGS_URL := https://github.com/phodina/static-tools/releases/download/v1.0/e2fsprogs-static-v1.0.tar.gz
+E2FSPROGS_TARBALL := e2fsprogs-static-v1.0.tar.gz
+E2FSPROGS_SHA256 := 5a7edc1e509be23075d8f7ee5c05008c5f8915a63c66c9d7da5187dcca522c7a
+E2FSPROGS_DIR := third_party/e2fsprogs-static-v1.0
 
 microhop-release-static:
 	RUSTFLAGS='-C target-feature=+crt-static' cargo build -p microhop --target $(ARCH)-unknown-linux-gnu --release
@@ -16,6 +21,15 @@ microgen-release:
 
 microgen-debug:
 	cargo build -p microgen
+
+e2fsprogs-static:
+	@printf "Fetching e2fsprogs static tools\n"
+	@mkdir -p $(E2FSPROGS_DIR)
+	@[ -f $(E2FSPROGS_TARBALL) ] || curl -L -o $(E2FSPROGS_TARBALL) $(E2FSPROGS_URL)
+	@printf "Verifying sha256\n"
+	@echo "$(E2FSPROGS_SHA256)  $(E2FSPROGS_TARBALL)" | sha256sum -c -
+	@printf "Extracting\n"
+	@tar -xzf $(E2FSPROGS_TARBALL) -C $(E2FSPROGS_DIR)
 
 _reset_placeholder:
 	@printf "Restoring placeholders\n"
