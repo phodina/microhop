@@ -32,6 +32,7 @@ pub const SYS_MPT: &[SystemDir<&'static str>] = &[
     SystemDir::new("sysfs", "none", "/sys"),
     SystemDir::new("devtmpfs", "devtmpfs", "/dev"),
     SystemDir::new("tmpfs", "tmpfs", "/run"),
+    SystemDir::new("tmpfs", "tmpfs", "/tmp"),
 ];
 
 // Initial greetings
@@ -206,7 +207,43 @@ pub fn mount_fs<T: AsRef<str>>(filesystems: &[SystemDir<T>]) -> Result<bool, Err
                                 }
                                 Ok(false) => {
                                     log::error!("Backup superblock recovery failed - no working backup found");
-                                    all_success = false;
+                                    log::warn!("Attempting advanced recovery methods...");
+                                    
+                                    use crate::fsck::attempt_advanced_recovery;
+                                    match attempt_advanced_recovery(t.dev.as_ref()) {
+                                        Ok(true) => {
+                                            log::info!("Advanced recovery succeeded! Retrying mount...");
+                                            match syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), flags) {
+                                                Ok(_) => {
+                                                    log::warn!("Successfully mounted {} after advanced recovery", t.dst.as_ref());
+                                                    log::error!("WARNING: Data integrity is questionable - backup immediately!");
+                                                }
+                                                Err(err2) => {
+                                                    log::error!("Mount failed even after advanced recovery: {}", err2);
+                                                    log::warn!("Attempting read-only mount as absolute last resort...");
+                                                    let readonly_flags = flags | nix::mount::MsFlags::MS_RDONLY;
+                                                    match syslib::fs::mount_with_flags(t.fstype.as_ref(), t.dev.as_ref(), t.dst.as_ref(), readonly_flags) {
+                                                        Ok(_) => {
+                                                            log::error!("Mounted {} READ-ONLY after recovery failure", t.dst.as_ref());
+                                                            log::error!("CRITICAL: Data integrity cannot be guaranteed!");
+                                                        }
+                                                        Err(err3) => {
+                                                            log::error!("All recovery attempts failed: {}", err3);
+                                                            all_success = false;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Ok(false) => {
+                                            log::error!("Advanced recovery also failed");
+                                            all_success = false;
+                                        }
+                                        Err(recovery_err) => {
+                                            log::error!("Error during advanced recovery: {}", recovery_err);
+                                            all_success = false;
+                                        }
+                                    }
                                 }
                                 Err(backup_err) => {
                                     log::error!("Error during backup superblock recovery: {}", backup_err);

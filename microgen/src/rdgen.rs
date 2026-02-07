@@ -21,6 +21,19 @@ const MICROHOP: &[u8] = include_bytes!(env!("MICROHOP_BINARY_PATH", "microhop"))
 #[cfg(feature = "fsck")]
 const E2FSCK: &[u8] = include_bytes!(env!("E2FSCK_BINARY_PATH", "e2fsck"));
 
+// Embed additional filesystem tools when fsck feature is enabled
+#[cfg(feature = "fsck")]
+const DUMPE2FS: &[u8] = include_bytes!(env!("DUMPE2FS_BINARY_PATH", "dumpe2fs"));
+
+#[cfg(feature = "fsck")]
+const MKE2FS: &[u8] = include_bytes!(env!("MKE2FS_BINARY_PATH", "mke2fs"));
+
+#[cfg(feature = "fsck")]
+const DEBUGFS: &[u8] = include_bytes!(env!("DEBUGFS_BINARY_PATH", "debugfs"));
+
+#[cfg(feature = "fsck")]
+const TUNE2FS: &[u8] = include_bytes!(env!("TUNE2FS_BINARY_PATH", "tune2fs"));
+
 const BLINKENLICHTEN: &str = "# Achtung Alles Lookenskepers!
 #
 # Das konfiguration ist nicht fuer gefingerpoken und
@@ -108,11 +121,40 @@ impl IrfsGen {
 
         #[cfg(feature = "fsck")]
         {
+            // Install e2fsck
             let e2p = self.dst.join("bin/e2fsck");
             fs::write(&e2p, E2FSCK)?;
             let mut eflags = fs::metadata(&e2p)?.permissions();
             eflags.set_mode(0o755);
             fs::set_permissions(e2p, eflags)?;
+
+            // Install dumpe2fs
+            let dumpe2fs_path = self.dst.join("bin/dumpe2fs");
+            fs::write(&dumpe2fs_path, DUMPE2FS)?;
+            let mut dumpe2fs_flags = fs::metadata(&dumpe2fs_path)?.permissions();
+            dumpe2fs_flags.set_mode(0o755);
+            fs::set_permissions(dumpe2fs_path, dumpe2fs_flags)?;
+
+            // Install mke2fs  
+            let mke2fs_path = self.dst.join("bin/mke2fs");
+            fs::write(&mke2fs_path, MKE2FS)?;
+            let mut mke2fs_flags = fs::metadata(&mke2fs_path)?.permissions();
+            mke2fs_flags.set_mode(0o755);
+            fs::set_permissions(mke2fs_path, mke2fs_flags)?;
+
+            // Install debugfs
+            let debugfs_path = self.dst.join("bin/debugfs");
+            fs::write(&debugfs_path, DEBUGFS)?;
+            let mut debugfs_flags = fs::metadata(&debugfs_path)?.permissions();
+            debugfs_flags.set_mode(0o755);
+            fs::set_permissions(debugfs_path, debugfs_flags)?;
+
+            // Install tune2fs
+            let tune2fs_path = self.dst.join("bin/tune2fs");
+            fs::write(&tune2fs_path, TUNE2FS)?;
+            let mut tune2fs_flags = fs::metadata(&tune2fs_path)?.permissions();
+            tune2fs_flags.set_mode(0o755);
+            fs::set_permissions(tune2fs_path, tune2fs_flags)?;
         }
 
         // Symlink to /init
